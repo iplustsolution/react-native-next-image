@@ -1,6 +1,6 @@
 {
   "name": "react-native-next-image",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "react-native-next-image",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -51,7 +51,7 @@
     "type": "git",
     "url": "git+https://github.com/iplustsolution/react-native-next-image.git"
   },
-  "author": "I Plus T Solution <personal.vijayji1137@gmail.com> (https://github.com/iplustsolution/react-native-next-image)",
+  "author": "I Plus T Solution <personal.vijayji1137@gmail.com> (https://github.com/iplustsolution)",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/iplustsolution/react-native-next-image/issues"
