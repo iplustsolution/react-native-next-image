@@ -17,7 +17,7 @@ Ultra-fast, ultra-smooth, and engineered for high-performance applications. Powe
 
 ---
 
-## 🚀 Version 0.0.3: The "Pro" Update
+## 🚀 Version 0.0.4: The "Pro" Update with bug fix
 
 We've completely overhauled the core engines to bring you the most advanced image loading library for React Native.
 
