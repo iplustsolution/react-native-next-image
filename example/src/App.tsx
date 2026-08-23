@@ -1,12 +1,19 @@
-import { Text, View, StyleSheet } from 'react-native';
-import { multiply } from 'react-native-next-image';
-
-const result = multiply(3, 7);
+import { View, StyleSheet } from 'react-native';
+import NextImage from 'react-native-next-image';
 
 export default function App() {
   return (
     <View style={styles.container}>
-      <Text>Result: {result}</Text>
+      <NextImage
+        style={styles.image}
+        source={{
+          uri: 'https://unsplash.it/400/400',
+          priority: 'high',
+          cache: 'immutable',
+        }}
+        resizeMode="cover"
+        transition="fade"
+      />
     </View>
   );
 }
@@ -16,5 +23,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  image: {
+    width: 200,
+    height: 200,
   },
 });

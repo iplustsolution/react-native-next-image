@@ -4,115 +4,124 @@
 
 # react-native-next-image
 
-**Blazing-fast, next-gen image loading for React Native.**
+**The Ultimate Pro-Grade Image Component for React Native.**
 
-Built for speed. Designed for scale. Made for developers who refuse to compromise on performance.
+Ultra-fast, ultra-smooth, and engineered for high-performance applications. Powered by **Coil 3 (Android)** and **Kingfisher 8 (iOS)**.
 
-[![npm version](https://img.shields.io/npm/v/@iplustsolution/react-native-next-image.svg?color=6366f1&label=npm)](https://www.npmjs.com/package/@iplustsolution/react-native-next-image)
-[![npm downloads](https://img.shields.io/npm/dm/@iplustsolution/react-native-next-image.svg?color=6366f1)](https://www.npmjs.com/package/@iplustsolution/react-native-next-image)
-[![bundle size](https://img.shields.io/bundlephobia/minzip/@iplustsolution/react-native-next-image?color=6366f1)](https://bundlephobia.com/package/@iplustsolution/react-native-next-image)
-[![types](https://img.shields.io/npm/types/@iplustsolution/react-native-next-image.svg?color=6366f1)](https://www.npmjs.com/package/@iplustsolution/react-native-next-image)
-[![license](https://img.shields.io/npm/l/@iplustsolution/react-native-next-image.svg?color=6366f1)](./LICENSE)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-6366f1.svg)](./CONTRIBUTING.md)
+[![npm version](https://img.shields.io/npm/v/react-native-next-image.svg?color=6366f1&label=npm)](https://www.npmjs.com/package/react-native-next-image)
+[![npm downloads](https://img.shields.io/npm/dm/react-native-next-image.svg?color=6366f1)](https://www.npmjs.com/package/react-native-next-image)
 [![platforms](https://img.shields.io/badge/platform-iOS%20%7C%20Android-6366f1.svg)](#)
-
-[Documentation](#) · [Report a Bug](https://github.com/iplustsolution/react-native-next-image/issues) · [Request a Feature](https://github.com/iplustsolution/react-native-next-image/issues)
+[![license](https://img.shields.io/npm/l/react-native-next-image.svg?color=6366f1)](./LICENSE)
 
 </div>
 
 ---
 
-## 🚧 Status
+## 🚀 Version 0.0.3: The "Pro" Update
 
-> **`react-native-next-image` is currently under active development.**
-> The API surface, native implementation, and public exports are evolving quickly and may change without notice until a `1.0.0` release. Star and watch the repo to follow progress — installation and usage docs will land here as soon as the API stabilizes.
+We've completely overhauled the core engines to bring you the most advanced image loading library for React Native.
 
----
+### ✨ Key Features
 
-## ✨ Why react-native-next-image?
-
-Image loading is one of the most performance-critical, most poorly-solved problems in React Native apps. Existing solutions are often slow to adopt new native rendering pipelines, carry outdated dependencies, or force trade-offs between speed, memory usage, and developer experience.
-
-**react-native-next-image** is being built from the ground up to change that — a modern, native-first image component engineered specifically around how React Native apps actually render, scroll, and recycle views today.
-
-- ⚡ **Speed-first architecture** — built on native image pipelines rather than bridging legacy web-view image loading.
-- 🧠 **Smart by default** — sensible caching, decoding, and memory behavior out of the box, no configuration required to get fast results.
-- 🧩 **New Architecture native** — built as a Turbo Module from day one, not retrofitted onto the old bridge.
-- 📦 **Tiny footprint** — no bloated dependency tree, no unnecessary abstractions.
-- 🍎🤖 **True cross-platform parity** — first-class iOS and Android implementations, not a shared lowest-common-denominator layer.
-- 🛠️ **Built with TypeScript** — fully typed from the native layer up.
+- 🏎️ **Dynamic Pre-fetching**: Images are automatically loaded in the background when they approach the viewport (Default: **400%** threshold, fully customizable).
+- ⚡ **Coil 3 & Kingfisher 8**: Leveraging the latest native image engines for hardware-accelerated rendering.
+- 🎨 **Pro Transitions**: Native spring animations including `fade`, `slide`, `scale`, and `gravity` (bouncy overshoot).
+- 🛠️ **Native Processing**: High-performance native `borderRadius`, `isCircle`, and `grayscale` filtering.
+- 🧠 **Smart Caching**: Shared global memory and disk cache (100MB+) across all instances.
+- 🔑 **Custom Headers**: Pass Authorization tokens or any custom headers directly.
+- ⏳ **Cache Expiration**: Fine-grained control over cache validity (minutes or seconds).
 
 ---
 
-## 🧬 The Philosophy
+## 📦 Installation
 
-Most image libraries were designed for a React Native that no longer exists — the old bridge, JSI-less, single-threaded rendering model. `react-native-next-image` starts from today's architecture:
+```bash
+# Using yarn
+yarn add react-native-next-image
 
-```
-        Legacy approach                    react-native-next-image
-   ┌──────────────────────┐          ┌──────────────────────────┐
-   │   JS Bridge (async)   │          │   JSI / Turbo Modules     │
-   │   Serialized props    │   ───▶   │   Direct native calls      │
-   │   Bridge-bound decode │          │   Native-thread decoding   │
-   └──────────────────────┘          └──────────────────────────┘
+# Using npm
+npm install react-native-next-image
 ```
 
-The goal isn't to be "another image component" — it's to be the image component that feels like it was shipped by the platform itself.
+### iOS Setup
+```bash
+cd ios && pod install
+```
 
 ---
 
-## 🏗️ Built With
+## 💡 Usage
 
-<p>
-  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Kotlin-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin" />
-  <img src="https://img.shields.io/badge/Objective--C-438EFF?style=flat-square&logo=apple&logoColor=white" alt="Objective-C" />
-  <img src="https://img.shields.io/badge/React_Native-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="React Native" />
-  <img src="https://img.shields.io/badge/Turbo_Modules-000000?style=flat-square" alt="Turbo Modules" />
-</p>
+### Pro Usage (Headers & Cache TTL)
+```tsx
+import NextImage from 'react-native-next-image';
 
-- **Kotlin** for the Android native module
-- **Objective-C / Objective-C++** for the iOS native module
-- **TypeScript** for the JS/public API layer
-- **[react-native-builder-bob](https://github.com/callstack/react-native-builder-bob)** for library packaging
-- **Turbo Modules / Codegen** for the New Architecture bridge
-
----
-
-## 🗺️ Roadmap to v1.0
-
-- [x] Turbo Module scaffolding (iOS + Android)
-- [x] TypeScript type definitions
-- [ ] Native image decoding pipeline
-- [ ] Memory + disk caching strategy
-- [ ] Placeholder / blur-up loading states
-- [ ] Priority-based loading & prefetching
-- [ ] Public API stabilization
-- [ ] Documentation site
-- [ ] `1.0.0` release
-
-Follow along in the [Issues](https://github.com/iplustsolution/react-native-next-image/issues) and [Projects](https://github.com/iplustsolution/react-native-next-image) tabs.
+<NextImage
+  source={{
+    uri: 'https://example.com/secure-image.jpg',
+    headers: { Authorization: 'Bearer YOUR_TOKEN' },
+    priority: 'high',
+    cache: 'immutable',
+    cacheDuration: 60, // Keep in cache for 60 minutes (1 hour)
+  }}
+  transition="gravity"
+  borderRadius={20}
+  style={{ width: '100%', height: 300 }}
+/>
+```
 
 ---
 
-## 🤝 Contributing
+## 📖 API Reference
 
-This library is in its early, most exciting phase — architectural decisions, API design, and core direction are still being shaped. If you're interested in high-performance native modules, image pipelines, or React Native internals, this is a great time to get involved.
+### Props
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) and our [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) to get started.
+| Prop | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `source` | `Source` | **Yes** | - | The image source configuration. |
+| `defaultSource` | `string` | No | - | Fallback image URL if the main source fails. |
+| `resizeMode` | `ResizeMode` | No | `'cover'` | `'contain'`, `'cover'`, `'stretch'`, `'center'`. |
+| `transition` | `Transition` | No | `'none'` | `'fade'`, `'slide'`, `'scale'`, `'gravity'`. |
+| `transitionDuration` | `number` | No | `300` | Duration of the transition in milliseconds. |
+| `borderRadius` | `number` | No | `0` | Native corner radius for performance. |
+| `isCircle` | `boolean` | No | `false` | Crops the image to a native circle. |
+| `grayscale` | `boolean` | No | `false` | Applies a native grayscale filter. |
+| `blurRadius` | `number` | No | `0` | Applies a native blur effect. |
+| `downsample` | `boolean` | No | `true` | Memory-optimized loading for large images. |
+| `prefetchThreshold` | `number` | No | `4` | Pre-fetch distance as a multiple of screen size (e.g. `2` for 200%). |
+| `tintColor` | `ColorValue` | No | - | Applies a tint color to non-transparent pixels. |
+
+### Source Object
+
+| Field | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `uri` | `string` | **Yes** | - | The URL of the image to load. |
+| `headers` | `Object` | No | `{}` | HTTP headers (e.g. `{ Authorization: '...' }`). |
+| `priority` | `Priority` | No | `'normal'` | `'low'`, `'normal'`, `'high'`. |
+| `cache` | `Cache` | No | `'web'` | `'immutable'`, `'web'`, `'cacheOnly'`. |
+| `cacheDuration` | `number` | No | `10080` | Cache TTL in **minutes**. (e.g. `0.5` for 30s). |
+
+### Static Methods
+
+| Method | Description |
+| :--- | :--- |
+| `NextImage.preload(sources[])` | Pre-fetches images into the native cache. |
+| `NextImage.clearMemoryCache()` | Clears the global memory cache. |
+| `NextImage.clearDiskCache()` | Clears the global disk cache. |
+
+---
+
+## 🧠 Advanced: Dynamic Pre-fetching
+
+`react-native-next-image` uses a predictive threshold mechanism. By default, it uses a **400% threshold** (`prefetchThreshold={4}`).
+
+It monitors the image's position relative to the viewport. If the image is within the specified distance, the native engine immediately starts fetching and decoding.
+
+- Set `prefetchThreshold={1}` to load only when the image is 1 screen away.
+- Set `prefetchThreshold={8}` for ultra-aggressive loading in fast-scrolling lists.
 
 ---
 
 ## 📜 License
 
 [MIT](./LICENSE) © [I Plus T Solution](https://github.com/iplustsolution)
-
----
-
-<div align="center">
-
-**If this project interests you, consider starring the repo — it genuinely helps.**
-
-⭐ [Star on GitHub](https://github.com/iplustsolution/react-native-next-image) · 📦 [View on npm](https://www.npmjs.com/package/@iplustsolution/react-native-next-image)
-
-</div>
