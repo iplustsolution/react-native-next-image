@@ -30,8 +30,6 @@ const NextImageView = isFabricEnabled
   ? require('./NextImageNativeComponent').default
   : requireNativeComponent('NextImageView');
 
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
-
 export type ResizeMode = 'contain' | 'cover' | 'stretch' | 'center';
 
 const resizeMode = {
@@ -175,6 +173,10 @@ function NextImageBase({
     let isMounted = true;
     const checkProximity = () => {
       if (!isMounted || shouldLoad) return;
+
+      const { height: screenHeight, width: screenWidth } =
+        Dimensions.get('window');
+
       if (
         viewRef.current &&
         typeof viewRef.current.measureInWindow === 'function'
@@ -183,8 +185,8 @@ function NextImageBase({
           (x: number, y: number, width: number, height: number) => {
             if (!isMounted) return;
 
-            const thresholdHeight = SCREEN_HEIGHT * prefetchThreshold;
-            const thresholdWidth = SCREEN_WIDTH * prefetchThreshold;
+            const thresholdHeight = screenHeight * prefetchThreshold;
+            const thresholdWidth = screenWidth * prefetchThreshold;
 
             const isNearViewport =
               y < thresholdHeight &&

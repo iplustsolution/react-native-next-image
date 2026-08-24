@@ -5,31 +5,24 @@ import android.graphics.PorterDuff
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import androidx.appcompat.widget.AppCompatImageView
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.request.transformations
+import coil3.request.*
+import coil3.Priority as CoilPriority
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.uimanager.events.RCTEventEmitter
-import coil3.request.CachePolicy
-import coil3.request.Priority
 import coil3.size.Scale
-import coil3.request.target
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.ThemedReactContext
 import coil3.transform.CircleCropTransformation
 import coil3.transform.RoundedCornersTransformation
-import coil3.request.placeholder
-import coil3.request.error
-import coil3.request.ProgressListener
 import android.view.animation.AlphaAnimation
 import android.view.animation.ScaleAnimation
 import android.view.animation.TranslateAnimation
 import android.view.animation.Animation
-import coil3.request.allowHardware
 import android.os.Build
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import coil3.asDrawable
 
 class NextImageView(context: Context) : AppCompatImageView(context) {
     private var source: ReadableMap? = null
@@ -86,7 +79,7 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
         reloadImage()
     }
 
-    fun setBorderRadius(radius: Float) {
+    fun setNextImageBorderRadius(radius: Float) {
         this.borderRadius = radius
         reloadImage()
     }
@@ -135,7 +128,7 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
     }
 
     private fun reloadImage() {
-        val uri = source?.getString("uri")
+        val uri = if (source?.hasKey("uri") == true) source?.getString("uri") else null
         val loader = NextImageImageLoader.getLoader(context)
 
         if (uri == null) {
@@ -159,12 +152,12 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
                     sendEvent("onNextImageLoadStart", null)
                 },
                 onSuccess = { result ->
-                    setImageDrawable(result)
+                    setImageDrawable(result.asDrawable(context.resources))
                     applyFilters()
                     applyCustomTransition()
                     val eventData = Arguments.createMap()
-                    eventData.putDouble("width", result.intrinsicWidth.toDouble())
-                    eventData.putDouble("height", result.intrinsicHeight.toDouble())
+                    eventData.putDouble("width", result.width.toDouble())
+                    eventData.putDouble("height", result.height.toDouble())
                     sendEvent("onNextImageLoad", eventData)
                     sendEvent("onNextImageLoadEnd", null)
                 },
@@ -182,23 +175,18 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
                     sendEvent("onNextImageLoadEnd", null)
                 }
             )
-            .progressListener { loaded, total ->
-                if (total > 0) {
-                    val eventData = Arguments.createMap()
-                    eventData.putInt("loaded", loaded.toInt())
-                    eventData.putInt("total", total.toInt())
-                    sendEvent("onNextImageProgress", eventData)
-                }
-            }
 
         // Headers
-        source?.getArray("headers")?.let { headers ->
-            for (i in 0 until headers.size()) {
-                val header = headers.getMap(i)
-                val name = header.getString("name")
-                val value = header.getString("value")
-                if (name != null && value != null) {
-                    requestBuilder.addHeader(name, value)
+        if (source?.hasKey("headers") == true) {
+            val headers = source?.getArray("headers")
+            if (headers != null) {
+                for (i in 0 until headers.size()) {
+                    val header = headers.getMap(i)
+                    val name = if (header.hasKey("name")) header.getString("name") else null
+                    val value = if (header.hasKey("value")) header.getString("value") else null
+                    if (name != null && value != null) {
+                        requestBuilder.header(name, value)
+                    }
                 }
             }
         }
@@ -210,18 +198,18 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
             10080.0
         }
         val maxAgeSeconds = (cacheDuration * 60).toLong()
-        requestBuilder.addHeader("Cache-Control", "max-age=$maxAgeSeconds")
+        requestBuilder.header("Cache-Control", "max-age=$maxAgeSeconds")
 
         // Priority
-        val priorityStr = source?.getString("priority")
+        val priorityStr = if (source?.hasKey("priority") == true) source?.getString("priority") else null
         when (priorityStr) {
-            "low" -> requestBuilder.priority(Priority.LOW)
-            "high" -> requestBuilder.priority(Priority.HIGH)
-            else -> requestBuilder.priority(Priority.NORMAL)
+            "low" -> requestBuilder.priority(CoilPriority.LOW)
+            "high" -> requestBuilder.priority(CoilPriority.HIGH)
+            else -> requestBuilder.priority(CoilPriority.NORMAL)
         }
 
         // Cache Control
-        val cacheStr = source?.getString("cache")
+        val cacheStr = if (source?.hasKey("cache") == true) source?.getString("cache") else null
         when (cacheStr) {
             "immutable" -> {
                 requestBuilder.memoryCachePolicy(CachePolicy.ENABLED)
@@ -262,7 +250,7 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
         // Downsampling
         if (!downsample) {
             requestBuilder.size(coil3.size.Size.ORIGINAL)
-            requestBuilder.precision(coil3.request.Precision.EXACT)
+            requestBuilder.precision(Precision.EXACT)
         }
 
         loader.enqueue(requestBuilder.build())
@@ -271,17 +259,17 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
     private fun applyCustomTransition() {
         val animation: Animation? = when (transition) {
             "slide" -> {
-                TranslateAnimation(0f, 0f, 100f, 0f).apply {
+                TranslateAnimation(0f, 0f, 50f, 0f).apply {
                     duration = transitionDuration.toLong()
                 }
             }
             "scale" -> {
-                ScaleAnimation(0.8f, 1f, 0.8f, 1f, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f).apply {
+                ScaleAnimation(0.9f, 1f, 0.9f, 1f, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f).apply {
                     duration = transitionDuration.toLong()
                 }
             }
             "gravity" -> {
-                TranslateAnimation(0f, 0f, -height.toFloat(), 0f).apply {
+                TranslateAnimation(0f, 0f, -height.toFloat() / 2f, 0f).apply {
                     duration = transitionDuration.toLong()
                     interpolator = android.view.animation.OvershootInterpolator()
                 }

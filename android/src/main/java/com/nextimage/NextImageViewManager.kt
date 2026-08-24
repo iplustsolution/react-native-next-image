@@ -49,8 +49,8 @@ class NextImageViewManager : SimpleViewManager<NextImageView>() {
     }
 
     @ReactProp(name = "borderRadius")
-    fun setBorderRadius(view: NextImageView, radius: Float) {
-        view.setBorderRadius(radius)
+    fun setBorderRadiusProp(view: NextImageView, radius: Float) {
+        view.setNextImageBorderRadius(radius)
     }
 
     @ReactProp(name = "isCircle")
