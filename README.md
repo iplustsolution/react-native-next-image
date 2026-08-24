@@ -4,9 +4,9 @@
 
 # react-native-next-image
 
-**The Ultimate Pro-Grade Image Component for React Native.**
+**Advanced, high-performance image loading for React Native.**
 
-Ultra-fast, ultra-smooth, and engineered for high-performance applications. Powered by **Coil 3 (Android)** and **Kingfisher 8 (iOS)**.
+Built for speed. Optimized for the New Architecture. Powered by **Coil 3 (Android)** and **SDWebImage (iOS)**.
 
 [![npm version](https://img.shields.io/npm/v/react-native-next-image.svg?color=6366f1&label=npm)](https://www.npmjs.com/package/react-native-next-image)
 [![npm downloads](https://img.shields.io/npm/dm/react-native-next-image.svg?color=6366f1)](https://www.npmjs.com/package/react-native-next-image)
@@ -17,19 +17,25 @@ Ultra-fast, ultra-smooth, and engineered for high-performance applications. Powe
 
 ---
 
-## 🚀 Version 0.0.4: The "Pro" Update with bug fix
+## ⚠️ 🚧 Status: Alpha Development
 
-We've completely overhauled the core engines to bring you the most advanced image loading library for React Native.
+> [!CAUTION]
+> **This package is NOT yet production-ready.**
+> `react-native-next-image` is currently in an active **Development and Testing phase**. We are rapidly iterating on the API, resolving native crashes, and fixing significant bugs.
+>
+> **Our Recommendation:** Do not use this package in production environments until we reach version **`1.0.0`**. Use it for experimentation and testing only.
 
-### ✨ Key Features
+---
 
-- 🏎️ **Dynamic Pre-fetching**: Images are automatically loaded in the background when they approach the viewport (Default: **400%** threshold, fully customizable).
-- ⚡ **Coil 3 & Kingfisher 8**: Leveraging the latest native image engines for hardware-accelerated rendering.
-- 🎨 **Pro Transitions**: Native spring animations including `fade`, `slide`, `scale`, and `gravity` (bouncy overshoot).
-- 🛠️ **Native Processing**: High-performance native `borderRadius`, `isCircle`, and `grayscale` filtering.
-- 🧠 **Smart Caching**: Shared global memory and disk cache (100MB+) across all instances.
-- 🔑 **Custom Headers**: Pass Authorization tokens or any custom headers directly.
-- ⏳ **Cache Expiration**: Fine-grained control over cache validity (minutes or seconds).
+## ✨ Key Features (Under Development)
+
+- 🏎️ **Dynamic Pre-fetching**: Background image loading based on proximity to the viewport (Customizable threshold).
+- ⚡ **Modern Native Engines**:
+  - **Android**: Powered by the latest [Coil 3](https://coil-kt.github.io/coil/) (Kotlin First, Coroutine based).
+  - **iOS**: Powered by [SDWebImage](https://github.com/SDWebImage/SDWebImage) (The gold standard for iOS image loading).
+- 🎨 **Native Transitions**: Support for `fade`, `slide`, `scale`, and bouncy `gravity` animations.
+- 🛠️ **Native Processing**: High-performance `borderRadius`, `isCircle`, and `grayscale` filters handled at the engine level.
+- 🧠 **Smart Caching**: Configurable TTL (Time-To-Live) and custom HTTP headers support.
 
 ---
 
@@ -52,18 +58,18 @@ cd ios && pod install
 
 ## 💡 Usage
 
-### Pro Usage (Headers & Cache TTL)
 ```tsx
 import NextImage from 'react-native-next-image';
 
 <NextImage
   source={{
-    uri: 'https://example.com/secure-image.jpg',
+    uri: 'https://example.com/image.jpg',
     headers: { Authorization: 'Bearer YOUR_TOKEN' },
     priority: 'high',
     cache: 'immutable',
-    cacheDuration: 60, // Keep in cache for 60 minutes (1 hour)
+    cacheDuration: 60, // 60 minutes
   }}
+  prefetchThreshold={4}  // Load when within 400% of screen height
   transition="gravity"
   borderRadius={20}
   style={{ width: '100%', height: 300 }}
@@ -76,49 +82,43 @@ import NextImage from 'react-native-next-image';
 
 ### Props
 
-| Prop | Type | Required | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `source` | `Source` | **Yes** | - | The image source configuration. |
-| `defaultSource` | `string` | No | - | Fallback image URL if the main source fails. |
-| `resizeMode` | `ResizeMode` | No | `'cover'` | `'contain'`, `'cover'`, `'stretch'`, `'center'`. |
-| `transition` | `Transition` | No | `'none'` | `'fade'`, `'slide'`, `'scale'`, `'gravity'`. |
-| `transitionDuration` | `number` | No | `300` | Duration of the transition in milliseconds. |
-| `borderRadius` | `number` | No | `0` | Native corner radius for performance. |
-| `isCircle` | `boolean` | No | `false` | Crops the image to a native circle. |
-| `grayscale` | `boolean` | No | `false` | Applies a native grayscale filter. |
-| `blurRadius` | `number` | No | `0` | Applies a native blur effect. |
-| `downsample` | `boolean` | No | `true` | Memory-optimized loading for large images. |
-| `prefetchThreshold` | `number` | No | `4` | Pre-fetch distance as a multiple of screen size (e.g. `2` for 200%). |
-| `tintColor` | `ColorValue` | No | - | Applies a tint color to non-transparent pixels. |
+| Prop | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `source` | `Source` | - | **Required.** Image source configuration. |
+| `defaultSource` | `string` | - | Fallback image URL. |
+| `resizeMode` | `ResizeMode` | `'cover'` | `'contain'`, `'cover'`, `'stretch'`, `'center'`. |
+| `transition` | `Transition` | `'none'` | `'fade'`, `'slide'`, `'scale'`, `'gravity'`. |
+| `transitionDuration` | `number` | `300` | Transition duration in milliseconds. |
+| `prefetchThreshold` | `number` | `4` | Viewport threshold (multiple of screen size). |
+| `borderRadius` | `number` | `0` | Native corner radius. |
+| `isCircle` | `boolean` | `false` | Native circular crop. |
+| `grayscale` | `boolean` | `false` | Native grayscale filter. |
+| `downsample` | `boolean` | `true` | Memory-optimized loading. |
 
 ### Source Object
 
-| Field | Type | Required | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `uri` | `string` | **Yes** | - | The URL of the image to load. |
-| `headers` | `Object` | No | `{}` | HTTP headers (e.g. `{ Authorization: '...' }`). |
-| `priority` | `Priority` | No | `'normal'` | `'low'`, `'normal'`, `'high'`. |
-| `cache` | `Cache` | No | `'web'` | `'immutable'`, `'web'`, `'cacheOnly'`. |
-| `cacheDuration` | `number` | No | `10080` | Cache TTL in **minutes**. (e.g. `0.5` for 30s). |
-
-### Static Methods
-
-| Method | Description |
-| :--- | :--- |
-| `NextImage.preload(sources[])` | Pre-fetches images into the native cache. |
-| `NextImage.clearMemoryCache()` | Clears the global memory cache. |
-| `NextImage.clearDiskCache()` | Clears the global disk cache. |
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `uri` | `string` | - | **Required.** Image URL. |
+| `headers` | `Object` | `{}` | HTTP Headers. |
+| `cacheDuration` | `number` | `10080` | Cache TTL in **minutes**. |
 
 ---
 
-## 🧠 Advanced: Dynamic Pre-fetching
+## 🗺️ Roadmap to v1.0
 
-`react-native-next-image` uses a predictive threshold mechanism. By default, it uses a **400% threshold** (`prefetchThreshold={4}`).
+- [ ] Stabilize Native API Parity (Coil 3 vs SDWebImage)
+- [ ] Resolve memory leaks in large lists
+- [ ] Implement robust error handling and retry logic
+- [ ] Complete Test Suite (Unit + Integration)
+- [ ] Detailed Documentation Site
+- [x] **v1.0.0 Production Release**
 
-It monitors the image's position relative to the viewport. If the image is within the specified distance, the native engine immediately starts fetching and decoding.
+---
 
-- Set `prefetchThreshold={1}` to load only when the image is 1 screen away.
-- Set `prefetchThreshold={8}` for ultra-aggressive loading in fast-scrolling lists.
+## 🤝 Contributing
+
+Contributions are welcome! Please read our [CONTRIBUTING.md](./CONTRIBUTING.md) to get started.
 
 ---
 
