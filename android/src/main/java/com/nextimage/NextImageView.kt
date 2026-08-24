@@ -6,7 +6,8 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import androidx.appcompat.widget.AppCompatImageView
 import coil3.request.*
-import coil3.Priority as CoilPriority
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.uimanager.events.RCTEventEmitter
 import coil3.size.Scale
@@ -23,6 +24,7 @@ import android.os.Build
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import coil3.asDrawable
+import coil3.size.Precision
 
 class NextImageView(context: Context) : AppCompatImageView(context) {
     private var source: ReadableMap? = null
@@ -176,37 +178,25 @@ class NextImageView(context: Context) : AppCompatImageView(context) {
                 }
             )
 
-        // Headers
+        val headersBuilder = NetworkHeaders.Builder()
+
         if (source?.hasKey("headers") == true) {
-            val headers = source?.getArray("headers")
-            if (headers != null) {
+            source?.getArray("headers")?.let { headers ->
                 for (i in 0 until headers.size()) {
                     val header = headers.getMap(i)
-                    val name = if (header.hasKey("name")) header.getString("name") else null
-                    val value = if (header.hasKey("value")) header.getString("value") else null
-                    if (name != null && value != null) {
-                        requestBuilder.header(name, value)
-                    }
+                    val name = if (header?.hasKey("name") == true) header.getString("name") else null
+                    val value = if (header?.hasKey("value") == true) header.getString("value") else null
+                    if (name != null && value != null) headersBuilder.add(name, value)
                 }
             }
         }
 
-        // Cache Duration (TTL)
         val cacheDuration = if (source?.hasKey("cacheDuration") == true) {
             source?.getDouble("cacheDuration") ?: 10080.0
-        } else {
-            10080.0
-        }
-        val maxAgeSeconds = (cacheDuration * 60).toLong()
-        requestBuilder.header("Cache-Control", "max-age=$maxAgeSeconds")
+        } else 10080.0
+        headersBuilder.set("Cache-Control", "max-age=${(cacheDuration * 60).toLong()}")
 
-        // Priority
-        val priorityStr = if (source?.hasKey("priority") == true) source?.getString("priority") else null
-        when (priorityStr) {
-            "low" -> requestBuilder.priority(CoilPriority.LOW)
-            "high" -> requestBuilder.priority(CoilPriority.HIGH)
-            else -> requestBuilder.priority(CoilPriority.NORMAL)
-        }
+        requestBuilder.httpHeaders(headersBuilder.build())
 
         // Cache Control
         val cacheStr = if (source?.hasKey("cache") == true) source?.getString("cache") else null

@@ -16,12 +16,8 @@ Pod::Spec.new do |s|
   s.source_files = "ios/**/*.{h,m,mm,swift,cpp}"
   s.private_header_files = "ios/**/*.h"
 
-  s.pod_target_xcconfig = {
-    'DEFINES_MODULE' => 'YES',
-    'SWIFT_COMPILATION_MODE' => 'wholemodule'
-  }
 
-  s.dependency "Kingfisher", "~> 8.0"
+s.dependency "SDWebImage", "~> 5.19"
 
   install_modules_dependencies(s)
 end

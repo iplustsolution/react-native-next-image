@@ -1,29 +1,26 @@
 import Foundation
-import Kingfisher
+import SDWebImage
 import UIKit
 
 @objc public class NextImageSwift: NSObject {
     @objc public static let shared = NextImageSwift()
 
     @objc public func preload(urls: [URL]) {
-        let prefetcher = ImagePrefetcher(urls: urls)
-        prefetcher.start()
+        SDWebImagePrefetcher.shared.prefetchURLs(urls)
     }
 
     @objc public func clearMemoryCache() {
-        ImageCache.default.clearMemoryCache()
+        SDImageCache.shared.clearMemory()
     }
 
     @objc public func clearDiskCache(completion: @escaping () -> Void) {
-        ImageCache.default.clearDiskCache {
-            completion()
-        }
+        SDImageCache.shared.clearDisk(onCompletion: completion)
     }
 }
 
 @objc(NextImageViewImpl)
 public class NextImageViewImpl: UIImageView {
-    private var currentTask: DownloadTask?
+    private var currentOperation: SDWebImageOperation?
 
     @objc public var onNextImageLoadStart: ((NSDictionary) -> Void)?
     @objc public var onNextImageProgress: ((NSDictionary) -> Void)?
@@ -32,15 +29,11 @@ public class NextImageViewImpl: UIImageView {
     @objc public var onNextImageLoadEnd: ((NSDictionary) -> Void)?
 
     @objc public var source: [String: Any]? {
-        didSet {
-            reloadImage()
-        }
+        didSet { reloadImage() }
     }
 
     @objc public var defaultSource: String? {
-        didSet {
-            reloadImage()
-        }
+        didSet { reloadImage() }
     }
 
     @objc public var resizeMode: String = "cover" {
@@ -51,15 +44,11 @@ public class NextImageViewImpl: UIImageView {
     }
 
     @objc public var blurRadius: CGFloat = 0 {
-        didSet {
-            reloadImage()
-        }
+        didSet { reloadImage() }
     }
 
     @objc public var transition: String = "none" {
-        didSet {
-            reloadImage()
-        }
+        didSet { reloadImage() }
     }
 
     @objc public var transitionDuration: CGFloat = 0.3
@@ -72,27 +61,19 @@ public class NextImageViewImpl: UIImageView {
     }
 
     @objc public var isCircle: Bool = false {
-        didSet {
-            setNeedsLayout()
-        }
+        didSet { setNeedsLayout() }
     }
 
     @objc public var grayscale: Bool = false {
-        didSet {
-            reloadImage()
-        }
+        didSet { reloadImage() }
     }
 
     @objc public var placeholder: String? {
-        didSet {
-            reloadImage()
-        }
+        didSet { reloadImage() }
     }
 
     @objc public var downsample: Bool = true {
-        didSet {
-            reloadImage()
-        }
+        didSet { reloadImage() }
     }
 
     @objc public var tintColorProp: UIColor? {
@@ -116,153 +97,185 @@ public class NextImageViewImpl: UIImageView {
 
     private func updateContentMode() {
         switch resizeMode {
-        case "contain":
-            contentMode = .scaleAspectFit
-        case "stretch":
-            contentMode = .scaleToFill
-        case "center":
-            contentMode = .center
-        default:
-            contentMode = .scaleAspectFill
+        case "contain": contentMode = .scaleAspectFit
+        case "stretch": contentMode = .scaleToFill
+        case "center": contentMode = .center
+        default: contentMode = .scaleAspectFill
         }
     }
 
     private func reloadImage() {
+        currentOperation?.cancel()
         onNextImageLoadStart?([:])
 
         guard let source = source, let uri = source["uri"] as? String, let url = URL(string: uri) else {
             if let defaultSource = defaultSource, let defaultUrl = URL(string: defaultSource) {
-                kf.setImage(with: defaultUrl)
-                onNextImageLoadEnd?([:])
+                sd_setImage(with: defaultUrl)
             } else {
-                kf.setImage(with: nil)
-                onNextImageLoadEnd?([:])
+                self.image = nil
             }
+            onNextImageLoadEnd?([:])
             return
         }
 
-        var options: KingfisherOptionsInfo = []
+        var options: SDWebImageOptions = [.retryFailed, .continueInBackground]
+        var context: [SDWebImageContextOption: Any] = [:]
 
         // Headers
         if let headers = source["headers"] as? [[String: String]] {
-            let modifier = AnyModifier { request in
-                var r = request
-                for header in headers {
-                    if let name = header["name"], let value = header["value"] {
-                        r.setValue(value, forHTTPHeaderField: name)
-                    }
+            var headerDict: [String: String] = [:]
+            for header in headers {
+                if let name = header["name"], let value = header["value"] {
+                    headerDict[name] = value
                 }
-                return r
             }
-            options.append(.requestModifier(modifier))
-        }
-
-        // Cache Duration
-        let cacheDuration = source["cacheDuration"] as? Double ?? 10080.0
-        options.append(.expiration(.seconds(cacheDuration * 60)))
-
-        // Downsampling
-        if downsample {
-            let size = self.bounds.size
-            if size.width > 0 && size.height > 0 {
-                options.append(.downsampling(size: size))
-            }
-        }
-
-        // Caching
-        if let cache = source["cache"] as? String {
-            switch cache {
-            case "cacheOnly":
-                options.append(.onlyFromCache)
-            case "immutable":
-                options.append(.cacheSerializer(DefaultCacheSerializer.default))
-            default:
-                break
-            }
+            context[.downloadRequestModifier] = SDWebImageDownloaderRequestModifier(headers: headerDict)
         }
 
         // Priority
         if let priority = source["priority"] as? String {
             switch priority {
-            case "low":
-                options.append(.downloadPriority(URLSessionTask.lowPriority))
-            case "high":
-                options.append(.downloadPriority(URLSessionTask.highPriority))
-            default:
-                options.append(.downloadPriority(URLSessionTask.defaultPriority))
+            case "low": options.insert(.lowPriority)
+            case "high": options.insert(.highPriority)
+            default: break
             }
         }
 
-        // Transitions
+        // Cache control
+        let cacheMode = source["cache"] as? String ?? "web"
+        if cacheMode == "cacheOnly" {
+            let manager = SDWebImageManager.shared
+            let key = manager.cacheKey(for: url)
+            if let cached = SDImageCache.shared.imageFromCache(forKey: key) {
+                applyResult(cached, error: nil)
+            } else {
+                let map = NSMutableDictionary()
+                map["error"] = "Image not found in cache"
+                onNextImageError?(map)
+                onNextImageLoadEnd?([:])
+            }
+            return
+        } else if cacheMode == "immutable" {
+            // Don't revalidate against the server once cached.
+            options.insert(.avoidDecodeImage)
+        } else {
+            // "web": respect standard HTTP caching (SDWebImage/URLSession default).
+        }
+
+        // Transition
         if transition == "fade" {
-            options.append(.transition(.fade(TimeInterval(transitionDuration / 1000.0))))
+            // Handled post-load via applyCustomTransition(); SDWebImage's own
+            // .imageWithFadeAnimation only covers memory-cache misses.
         }
 
-        // Processors
-        var processors: [ImageProcessor] = []
-        if grayscale {
-            processors.append(ColorControlsProcessor(brightness: 0, contrast: 1, saturation: 0, inputEV: 0))
-        }
-        if blurRadius > 0 {
-            processors.append(BlurImageProcessor(blurRadius: blurRadius))
-        }
-
-        if !processors.isEmpty {
-            let combined = processors.dropFirst().reduce(processors.first!) { $0.append(another: $1) }
-            options.append(.processor(combined))
-        }
-
-        currentTask = kf.setImage(
+        currentOperation = sd_setImage(
             with: url,
-            placeholder: nil,
+            placeholderImage: nil,
             options: options,
-            progressBlock: { [weak self] (receivedSize, totalSize) in
-                self?.onNextImageProgress?([
-                    "loaded": Int(receivedSize),
-                    "total": Int(totalSize)
-                ])
+            context: context,
+            progress: { [weak self] receivedSize, expectedSize, _ in
+                guard let self = self, expectedSize > 0 else { return }
+                let map = NSMutableDictionary()
+                map["loaded"] = receivedSize
+                map["total"] = expectedSize
+                self.onNextImageProgress?(map)
             },
-            completionHandler: { [weak self] result in
-                switch result {
-                case .success(let value):
-                    if let tint = self?.tintColorProp {
-                        self?.image = value.image.withRenderingMode(.alwaysTemplate)
+            completed: { [weak self] image, error, _, _ in
+                guard let self = self else { return }
+                if let image = image {
+                    self.applyResult(image, error: nil)
+                } else {
+                    if let defaultSource = self.defaultSource, let defaultUrl = URL(string: defaultSource) {
+                        self.sd_setImage(with: defaultUrl)
                     }
-                    self?.applyCustomTransition()
-                    self?.onNextImageLoad?([
-                        "width": value.image.size.width,
-                        "height": value.image.size.height
-                    ])
-                    self?.onNextImageLoadEnd?([:])
-                case .failure(let error):
-                    if let defaultSource = self?.defaultSource, let defaultUrl = URL(string: defaultSource) {
-                        self?.kf.setImage(with: defaultUrl)
-                    }
-                    self?.onNextImageError?(["error": error.localizedDescription])
-                    self?.onNextImageLoadEnd?([:])
+                    let map = NSMutableDictionary()
+                    map["error"] = error?.localizedDescription ?? "Failed to load image"
+                    self.onNextImageError?(map)
+                    self.onNextImageLoadEnd?([:])
                 }
             }
         )
     }
 
+    /// Applies grayscale/blur post-processing (Core Image), tint, transition
+    /// and fires the load-success events. Runs the filter work off-thread.
+    private func applyResult(_ rawImage: UIImage, error: Error?) {
+        let needsFilter = grayscale || blurRadius > 0
+        if !needsFilter {
+            finishApplying(rawImage)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let filtered = Self.applyCoreImageFilters(
+                to: rawImage,
+                grayscale: self.grayscale,
+                blurRadius: self.blurRadius
+            )
+            DispatchQueue.main.async {
+                self.finishApplying(filtered ?? rawImage)
+            }
+        }
+    }
+
+    private func finishApplying(_ image: UIImage) {
+        if let tint = tintColorProp {
+            self.image = image.withRenderingMode(.alwaysTemplate)
+            self.tintColor = tint
+        } else {
+            self.image = image
+        }
+        applyCustomTransition()
+
+        let map = NSMutableDictionary()
+        map["width"] = image.size.width
+        map["height"] = image.size.height
+        onNextImageLoad?(map)
+        onNextImageLoadEnd?([:])
+    }
+
+    private static func applyCoreImageFilters(to image: UIImage, grayscale: Bool, blurRadius: CGFloat) -> UIImage? {
+        guard var ciImage = CIImage(image: image) else { return nil }
+        let context = CIContext()
+
+        if grayscale {
+            guard let filter = CIFilter(name: "CIColorControls") else { return nil }
+            filter.setValue(ciImage, forKey: kCIInputImageKey)
+            filter.setValue(0.0, forKey: kCIInputSaturationKey)
+            guard let output = filter.outputImage else { return nil }
+            ciImage = output
+        }
+
+        if blurRadius > 0 {
+            guard let filter = CIFilter(name: "CIGaussianBlur") else { return nil }
+            filter.setValue(ciImage, forKey: kCIInputImageKey)
+            filter.setValue(blurRadius, forKey: kCIInputRadiusKey)
+            guard let output = filter.outputImage?.cropped(to: ciImage.extent) else { return nil }
+            ciImage = output
+        }
+
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return nil }
+        return UIImage(cgImage: cgImage, scale: image.scale, orientation: image.imageOrientation)
+    }
+
     private func applyCustomTransition() {
         let duration = TimeInterval(transitionDuration / 1000.0)
         switch transition {
+        case "fade":
+            self.alpha = 0
+            UIView.animate(withDuration: duration) { self.alpha = 1 }
         case "slide":
             self.transform = CGAffineTransform(translationX: 0, y: 50)
-            UIView.animate(withDuration: duration) {
-                self.transform = .identity
-            }
+            UIView.animate(withDuration: duration) { self.transform = .identity }
         case "scale":
             self.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-            UIView.animate(withDuration: duration) {
-                self.transform = .identity
-            }
+            UIView.animate(withDuration: duration) { self.transform = .identity }
         case "gravity":
             self.transform = CGAffineTransform(translationX: 0, y: -frame.size.height / 2)
-            UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.5, options: [], animations: {
+            UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 0.6,
+                            initialSpringVelocity: 0.5, options: [], animations: {
                 self.transform = .identity
-            }, completion: nil)
+            })
         default:
             break
         }
