@@ -4,7 +4,7 @@ PODS:
     - hermes-engine/Pre-built (= 250829098.0.10)
   - hermes-engine/Pre-built (250829098.0.10)
   - Kingfisher (8.12.0)
-  - NextImage (0.0.5):
+  - NextImage (0.0.6):
     - hermes-engine
     - Kingfisher (~> 8.0)
     - RCTRequired
@@ -2009,7 +2009,7 @@ SPEC CHECKSUMS:
   FBLazyVector: c00c20551d40126351a6783c47ce75f5b374851b
   hermes-engine: 80838c1b6acefd7a0d4a40dd4fdc9b945d643e95
   Kingfisher: 64e06c7d1a9851ecff9d1b14f92ad01141263dae
-  NextImage: 78735d99ffb3af260da49e94720554e3cfafc2a2
+  NextImage: 73b996e4d3cdfcd3f4e66b2479674c822958bd88
   RCTDeprecation: 3bb167081b134461cfeb875ff7ae1945f8635257
   RCTRequired: 74839f55d5058a133a0bc4569b0afec750957f64
   RCTSwiftUI: 87a316382f3eab4dd13d2a0d0fd2adcce917361a
@@ -2082,6 +2082,6 @@ SPEC CHECKSUMS:
   ReactNativeDependencies: faa4e8462f2bafa548794376bd869c7ddb0c5c3b
   Yoga: e83c3121d079541e69f3c5c623faaaf933fb5812
 
-PODFILE CHECKSUM: ba0be2aabcf459cdcdd31a3283fc75641fd7d8c5
+PODFILE CHECKSUM: 54522bc1762806d3d8c71d56747e35c90684a051
 
 COCOAPODS: 1.16.2

@@ -53,39 +53,54 @@ npm install react-native-next-image
 cd ios && pod install
 ```
 
-`NextImage` depends on [Kingfisher](https://github.com/onevcat/Kingfisher) 8.
-Two things to know about your `Podfile`:
+`NextImage` depends on [Kingfisher](https://github.com/onevcat/Kingfisher) 8,
+and two of Kingfisher's own build settings need a nudge from your app. Add this
+to the `post_install` block in your `Podfile`:
 
-1. Kingfisher ships `BUILD_LIBRARY_FOR_DISTRIBUTION = YES`. Combined with a
-   global `use_modular_headers!` that makes Swift look for an Objective-C
-   module that does not exist. If your app needs modular headers, opt Kingfisher
-   out of them:
+```ruby
+post_install do |installer|
+  react_native_post_install(installer, config[:reactNativePath])
 
-   ```ruby
-   use_modular_headers!
-   pod 'Kingfisher', :modular_headers => false
-   ```
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      # Kingfisher declares iOS 13, and its resource bundle target inherits
+      # that, which Xcode 16 and newer reject. React Native's own post install
+      # step only raises pod targets, so resource bundles need this pass too.
+      current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f
+      if current > 0 && current < min_ios_version_supported.to_f
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+      end
 
-2. Kingfisher declares iOS 13, and Xcode 16 and newer reject that for its
-   resource bundle. React Native's `post_install` only raises pod targets, so
-   add one pass for the rest:
+      # Kingfisher's podspec asks for library evolution. CocoaPods also gives
+      # every Swift pod a clang module map, so the emitted .swiftinterface
+      # contains `@_exported import Kingfisher` and verifying it fails.
+      # Library evolution buys nothing for a pod built from source inside the
+      # app, so it is turned off here.
+      if target.name == 'Kingfisher'
+        config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'NO'
+        config.build_settings['SWIFT_VERIFY_EMITTED_MODULE_INTERFACE'] = 'NO'
+      end
+    end
+  end
+end
+```
 
-   ```ruby
-   post_install do |installer|
-     react_native_post_install(installer, config[:reactNativePath])
+Without the first pass the build fails with:
 
-     installer.pods_project.targets.each do |target|
-       target.build_configurations.each do |config|
-         current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f
-         if current > 0 && current < min_ios_version_supported.to_f
-           config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
-         end
-       end
-     end
-   end
-   ```
+```
+The iOS Simulator deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to
+13.0, but the range of supported deployment target versions is 15.0 to 27.0
+```
 
-Both are applied in [`example/ios/Podfile`](./example/ios/Podfile).
+and without the second, with:
+
+```
+error: underlying Objective-C module 'Kingfisher' not found
+error: failed to verify module interface of 'Kingfisher'
+```
+
+Both passes are applied in [`example/ios/Podfile`](./example/ios/Podfile), which
+is built on every commit, with `use_modular_headers!` on.
 
 ### Android
 

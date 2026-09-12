@@ -8,12 +8,7 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
-# Kingfisher ships `BUILD_LIBRARY_FOR_DISTRIBUTION = YES`, and combining that
-# with `use_modular_headers!` makes Swift look for an underlying Objective-C
-# module that does not exist. Apps that need modular headers globally can keep
-# them and opt Kingfisher out instead:
-#   use_modular_headers!
-#   pod 'Kingfisher', :modular_headers => false
+use_modular_headers!
 
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
@@ -38,14 +33,26 @@ target 'NextImageExample' do
       # :ccache_enabled => true
     )
 
-    # Kingfisher declares iOS 13 and its resource bundle target inherits that,
-    # which Xcode 16 and newer reject. React Native's own post install step
-    # only raises pod targets, so resource bundles need this pass too.
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
+        # Kingfisher declares iOS 13 and its resource bundle target inherits
+        # that, which Xcode 16 and newer reject. React Native's own post
+        # install step only raises pod targets, so resource bundles need this
+        # pass too.
         current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f
         if current > 0 && current < min_ios_version_supported.to_f
           config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+        end
+
+        # Kingfisher's podspec asks for library evolution. CocoaPods also gives
+        # every Swift pod a clang module map, so the emitted .swiftinterface
+        # contains `@_exported import Kingfisher`, and verifying it fails with
+        # "underlying Objective-C module 'Kingfisher' not found". Library
+        # evolution buys nothing for a pod built from source inside the app, so
+        # it is turned off here.
+        if target.name == 'Kingfisher'
+          config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'NO'
+          config.build_settings['SWIFT_VERIFY_EMITTED_MODULE_INTERFACE'] = 'NO'
         end
       end
     end
