@@ -46,12 +46,12 @@ class NextImageViewManager :
   }
 
   @ReactProp(name = "defaultSource")
-  override fun setDefaultSource(view: NextImageView, value: String?) {
+  override fun setDefaultSource(view: NextImageView, value: ReadableMap?) {
     view.setDefaultSource(value)
   }
 
   @ReactProp(name = "placeholder")
-  override fun setPlaceholder(view: NextImageView, value: String?) {
+  override fun setPlaceholder(view: NextImageView, value: ReadableMap?) {
     view.setPlaceholder(value)
   }
 
@@ -80,9 +80,10 @@ class NextImageViewManager :
     view.setTransitionDuration(value)
   }
 
-  @ReactProp(name = "borderRadius")
-  override fun setBorderRadius(view: NextImageView, value: Float) {
-    view.setBorderRadiusPx(value)
+  /** Arrives in dp, like every other layout value from JS. */
+  @ReactProp(name = "cornerRadius")
+  override fun setCornerRadius(view: NextImageView, value: Float) {
+    view.setBorderRadiusDp(value)
   }
 
   @ReactProp(name = "isCircle")

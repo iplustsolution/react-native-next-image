@@ -11,26 +11,33 @@ import android.view.animation.OvershootInterpolator
 import android.view.animation.ScaleAnimation
 import android.view.animation.TranslateAnimation
 import android.widget.ImageView
+import coil3.Image
+import coil3.ImageLoader
+import coil3.asDrawable
 import coil3.decode.DataSource
 import coil3.network.HttpException
 import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
-import coil3.asDrawable
 import coil3.request.crossfade
 import coil3.request.target
 import coil3.request.transformations
 import coil3.size.Precision
 import coil3.size.Scale
 import coil3.size.Size
+import coil3.size.ViewSizeResolver
+import coil3.target.ImageViewTarget
 import coil3.transform.CircleCropTransformation
 import coil3.transform.RoundedCornersTransformation
 import coil3.transform.Transformation
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.bridge.WritableMap
+import com.facebook.react.uimanager.PixelUtil
 import com.facebook.react.uimanager.UIManagerHelper
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * The native image view.
@@ -46,12 +53,14 @@ import com.facebook.react.uimanager.UIManagerHelper
  *     not cached yet has not failed.
  *  4. A network failure is retried with exponential backoff; a 4xx is not,
  *     because retrying a rejected request cannot succeed.
+ *  5. The view never blanks itself while a request is running: the placeholder
+ *     or the previous image stays until the new one is ready.
  */
 class NextImageView(context: ReactContext) : ImageView(context) {
 
   private var source: ReadableMap? = null
-  private var defaultSourceUri: String? = null
-  private var placeholderUri: String? = null
+  private var defaultSource: ReadableMap? = null
+  private var placeholderSource: ReadableMap? = null
   private var resizeModeValue: String = RESIZE_COVER
   private var transitionValue: String = TRANSITION_NONE
   private var transitionDurationMs: Int = 300
@@ -67,6 +76,7 @@ class NextImageView(context: ReactContext) : ImageView(context) {
 
   private var propsDirty = false
   private var disposable: Disposable? = null
+  private var placeholderDisposable: Disposable? = null
   private var loadedSignature: String? = null
   private var pendingSignature: String? = null
   private var attempt = 0
@@ -75,6 +85,22 @@ class NextImageView(context: ReactContext) : ImageView(context) {
   private var progressUrl: String? = null
   private var progressListener: NextImageProgressRegistry.Listener? = null
   private var retryRunnable: Runnable? = null
+
+  /**
+   * Coil's stock target clears the view when a request starts and again when
+   * it fails. That would flash the placeholder away on every deferred cache
+   * miss and blank a loaded image while a changed prop re-decodes it. Nothing
+   * is cleared here; the view decides for itself what to show.
+   */
+  private val target = object : ImageViewTarget(this) {
+    override fun onStart(placeholder: Image?) {
+      if (placeholder != null) super.onStart(placeholder)
+    }
+
+    override fun onError(error: Image?) {
+      if (error != null) super.onError(error)
+    }
+  }
 
   init {
     scaleType = ScaleType.CENTER_CROP
@@ -85,13 +111,13 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     propsDirty = true
   }
 
-  fun setDefaultSource(value: String?) {
-    defaultSourceUri = value
+  fun setDefaultSource(value: ReadableMap?) {
+    defaultSource = value
     propsDirty = true
   }
 
-  fun setPlaceholder(value: String?) {
-    placeholderUri = value
+  fun setPlaceholder(value: ReadableMap?) {
+    placeholderSource = value
     propsDirty = true
   }
 
@@ -109,9 +135,12 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     transitionDurationMs = value.coerceIn(0, 10_000)
   }
 
-  fun setBorderRadiusPx(value: Float) {
-    borderRadiusPx = if (value.isFinite() && value > 0f) value else 0f
-    propsDirty = true
+  fun setBorderRadiusDp(value: Float) {
+    val px = if (value.isFinite() && value > 0f) PixelUtil.toPixelFromDIP(value) else 0f
+    if (px != borderRadiusPx) {
+      borderRadiusPx = px
+      propsDirty = true
+    }
   }
 
   fun setCircleCrop(value: Boolean) {
@@ -166,8 +195,7 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     applyScaleType()
     applyFilters()
 
-    val parsed = NextImageRequestFactory.parse(source, NextImageConfigStore.current)
-    when (parsed) {
+    when (val parsed = NextImageRequestFactory.parse(source, NextImageConfigStore.current)) {
       is NextImageRequestFactory.Parsed.Empty -> {
         clearRequest()
         loadedSignature = null
@@ -218,13 +246,12 @@ class NextImageView(context: ReactContext) : ImageView(context) {
 
     val loader = NextImageImageLoader.getLoader(context)
     if (!mainImageLoaded) {
-      showPlaceholder(spec)
+      showPlaceholder(spec, loader)
     }
-    registerProgress(spec.uri)
 
     val builder = ImageRequest.Builder(context)
-    NextImageRequestFactory.apply(builder, spec, deferNetwork)
-    builder.target(this)
+    NextImageRequestFactory.apply(context, builder, spec, deferNetwork)
+    builder.target(target)
     builder.scale(scaleFor(resizeModeValue))
 
     if (!downsampleEnabled) {
@@ -251,10 +278,19 @@ class NextImageView(context: ReactContext) : ImageView(context) {
 
     builder.listener(
       onStart = {
-        emitEvent(NextImageEvent.LOAD_START, null)
+        // Coil restarts a request by itself when a clipped view comes back
+        // into the window; that is not a new load as far as JS is concerned.
+        if (!isShowing(signature)) {
+          registerProgress(spec)
+          // Once per load, not once per retry, matching iOS.
+          if (attempt == 0) {
+            emitEvent(NextImageEvent.LOAD_START, null)
+          }
+        }
       },
       onCancel = {
         unregisterProgress()
+        handleCancel(spec, signature, pendingKey, loader)
       },
       onError = { _, result ->
         unregisterProgress()
@@ -262,22 +298,56 @@ class NextImageView(context: ReactContext) : ImageView(context) {
       },
       onSuccess = { _, result ->
         unregisterProgress()
-        pendingSignature = null
-        loadedSignature = signature
-        mainImageLoaded = true
-        attempt = 0
-        applyFilters()
-        applyCustomTransition()
-        emitSuccess(result)
+        handleSuccess(signature, result)
       },
     )
 
     disposable = loader.enqueue(builder.build())
   }
 
+  private fun isShowing(signature: String): Boolean =
+    mainImageLoaded && loadedSignature == signature
+
+  private fun handleSuccess(signature: String, result: SuccessResult) {
+    val duplicate = isShowing(signature)
+    pendingSignature = null
+    loadedSignature = signature
+    mainImageLoaded = true
+    attempt = 0
+    placeholderDisposable?.dispose()
+    placeholderDisposable = null
+    applyFilters()
+    if (!duplicate) {
+      applyCustomTransition()
+      emitSuccess(result)
+    }
+  }
+
+  /**
+   * Coil cancels a request when the view is clipped out of the window, and
+   * restarts it when the view comes back; that needs no help. A cancellation
+   * caused by the loader being rebuilt (`configure`, `setCacheLimits`) would
+   * otherwise leave the view empty for good, so that one is re-enqueued.
+   */
+  private fun handleCancel(
+    spec: NextImageRequestFactory.Spec,
+    signature: String,
+    pendingKey: String,
+    loader: ImageLoader,
+  ) {
+    if (pendingSignature != pendingKey) return
+    if (NextImageImageLoader.peekLoader() === loader) return
+    post {
+      if (pendingSignature == pendingKey) {
+        load(spec, signature, pendingKey)
+      }
+    }
+  }
+
   /**
    * A deferred request that misses the cache has not failed, so it stays
-   * silent. Everything else is retried unless the server refused it.
+   * silent. Everything else is retried unless the server refused it or the
+   * request was never allowed to reach the network.
    */
   private fun handleError(
     spec: NextImageRequestFactory.Spec,
@@ -291,7 +361,14 @@ class NextImageView(context: ReactContext) : ImageView(context) {
       return
     }
 
-    val status = (throwable as? HttpException)?.response?.code ?: 0
+    val http = throwable as? HttpException
+    val status = http?.response?.code ?: 0
+    // The synthetic 504 from NextImageOnlyIfCachedInterceptor: the cache
+    // missed and the network was off limits, or the device is offline.
+    val unsatisfiable = http != null &&
+      status == NextImageOnlyIfCachedInterceptor.UNSATISFIABLE_STATUS &&
+      http.response.headers[UNSATISFIABLE_HEADER] != null
+    val reportedStatus = if (unsatisfiable) 0 else status
     val clientError = status in 400..499
     // A cache-only request that missed cannot be fixed by trying again.
     val cacheOnly = spec.cache == NextImageRequestFactory.CACHE_ONLY
@@ -310,22 +387,32 @@ class NextImageView(context: ReactContext) : ImageView(context) {
       return
     }
 
+    // The previous image, if any, is not what the caller asked for any more.
+    loadedSignature = null
+    mainImageLoaded = false
     showDefaultSource()
     emitError(
       throwable.message ?: throwable.toString(),
-      codeFor(throwable, status, cacheOnly),
-      status,
+      codeFor(throwable, reportedStatus, cacheOnly, unsatisfiable),
+      reportedStatus,
       // A transient failure is worth retrying by hand; a 4xx or a cache miss is not.
       retryable = !clientError && !cacheOnly,
     )
     emitEvent(NextImageEvent.LOAD_END, null)
   }
 
-  private fun codeFor(throwable: Throwable, status: Int, cacheOnly: Boolean): String = when {
-    status in 400..499 -> "HTTP_CLIENT"
-    status >= 500 -> "HTTP_SERVER"
+  private fun codeFor(
+    throwable: Throwable,
+    status: Int,
+    cacheOnly: Boolean,
+    unsatisfiable: Boolean,
+  ): String = when {
     // With the network disabled there is nothing to blame but the empty cache.
     cacheOnly -> "CACHE_MISS"
+    // The cache missed and the device is offline.
+    unsatisfiable -> "NETWORK"
+    status in 400..499 -> "HTTP_CLIENT"
+    status >= 500 -> "HTTP_SERVER"
     throwable is HttpException -> "NETWORK"
     throwable is java.io.IOException -> "NETWORK"
     else -> "DECODE"
@@ -334,47 +421,55 @@ class NextImageView(context: ReactContext) : ImageView(context) {
   /**
    * The placeholder is a separate request so that it can come from cache
    * without blocking the real image; it is dropped the moment the real image
-   * arrives.
+   * arrives. It goes through the same policy and cache as any source.
    */
-  private fun showPlaceholder(spec: NextImageRequestFactory.Spec) {
-    val uri = placeholderUri ?: return
-    if (uri == spec.uri) return
-    val loader = NextImageImageLoader.getLoader(context)
-    loader.enqueue(
-      ImageRequest.Builder(context)
-        .data(uri)
-        .target(
-          onSuccess = { image ->
-            if (!mainImageLoaded) {
-              setImageDrawable(image.asDrawable(resources))
-            }
-          },
-        )
-        .build()
+  private fun showPlaceholder(spec: NextImageRequestFactory.Spec, loader: ImageLoader) {
+    placeholderDisposable?.dispose()
+    placeholderDisposable = null
+    val parsed = NextImageRequestFactory.parse(placeholderSource, NextImageConfigStore.current)
+    if (parsed !is NextImageRequestFactory.Parsed.Ok) return
+    if (parsed.spec.uri == spec.uri) return
+    placeholderDisposable = loader.enqueue(
+      secondaryRequest(parsed.spec) { image ->
+        if (!mainImageLoaded) {
+          setImageDrawable(image.asDrawable(resources))
+        }
+      }
     )
   }
 
   private fun showDefaultSource() {
-    val uri = defaultSourceUri
-    if (uri == null) {
+    val parsed = NextImageRequestFactory.parse(defaultSource, NextImageConfigStore.current)
+    if (parsed !is NextImageRequestFactory.Parsed.Ok) {
       if (!mainImageLoaded) {
         setImageDrawable(null)
       }
       return
     }
     val loader = NextImageImageLoader.getLoader(context)
-    loader.enqueue(
-      ImageRequest.Builder(context)
-        .data(uri)
-        .target(
-          onSuccess = { image ->
-            if (!mainImageLoaded) {
-              setImageDrawable(image.asDrawable(resources))
-            }
-          },
-        )
-        .build()
+    placeholderDisposable?.dispose()
+    placeholderDisposable = loader.enqueue(
+      secondaryRequest(parsed.spec) { image ->
+        if (!mainImageLoaded) {
+          setImageDrawable(image.asDrawable(resources))
+        }
+      }
     )
+  }
+
+  /** A placeholder or default image: sized to the view, never deferred. */
+  private fun secondaryRequest(
+    spec: NextImageRequestFactory.Spec,
+    onSuccess: (Image) -> Unit,
+  ): ImageRequest {
+    val builder = ImageRequest.Builder(context)
+    NextImageRequestFactory.apply(context, builder, spec, deferNetwork = false)
+    return builder
+      .size(ViewSizeResolver(this))
+      .scale(scaleFor(resizeModeValue))
+      .precision(Precision.INEXACT)
+      .target(onSuccess = onSuccess)
+      .build()
   }
 
   private fun applyScaleType() {
@@ -443,14 +538,25 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     animation?.let { startAnimation(it) }
   }
 
-  private fun registerProgress(url: String) {
+  /**
+   * Progress is keyed by the url exactly as OkHttp sees it, so a source whose
+   * spelling OkHttp normalises (upper-case host, unencoded characters) still
+   * reports. Local assets have nothing to report.
+   */
+  private fun registerProgress(spec: NextImageRequestFactory.Spec) {
     unregisterProgress()
+    if (!NextImageRequestFactory.isRemote(spec)) return
+    val url = spec.uri.toHttpUrlOrNull()?.toString() ?: spec.uri
     val listener = NextImageProgressRegistry.Listener { loaded, total ->
-      val payload = Arguments.createMap().apply {
-        putInt("loaded", loaded.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-        putInt("total", total.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())
+      // Reported from OkHttp's reader thread; events are dispatched on the UI thread.
+      UiThreadUtil.runOnUiThread {
+        if (progressUrl != url) return@runOnUiThread
+        val payload = Arguments.createMap().apply {
+          putInt("loaded", loaded.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())
+          putInt("total", total.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())
+        }
+        emitEvent(NextImageEvent.PROGRESS, payload, coalesce = true)
       }
-      emitEvent(NextImageEvent.PROGRESS, payload, coalesce = true)
     }
     progressUrl = url
     progressListener = listener
@@ -470,9 +576,12 @@ class NextImageView(context: ReactContext) : ImageView(context) {
   private fun clearRequest() {
     retryRunnable?.let { removeCallbacks(it) }
     retryRunnable = null
+    // Cleared before disposing, so the cancellation callback knows it was ours.
+    pendingSignature = null
     disposable?.dispose()
     disposable = null
-    pendingSignature = null
+    placeholderDisposable?.dispose()
+    placeholderDisposable = null
     unregisterProgress()
   }
 
@@ -483,6 +592,8 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     loadedSignature = null
     mainImageLoaded = false
     source = null
+    placeholderSource = null
+    defaultSource = null
     propsDirty = false
   }
 

@@ -30,6 +30,7 @@ import {
   PRIORITIES,
   RESIZE_MODES,
   TRANSITIONS,
+  bundledSource,
   clampFloat,
   clampInt,
   describeRejection,
@@ -153,6 +154,7 @@ export interface OnLoadEvent {
 export interface OnProgressEvent {
   nativeEvent: {
     loaded: number;
+    /** `0` when the server sent no `Content-Length`. */
     total: number;
   };
 }
@@ -160,10 +162,14 @@ export interface OnProgressEvent {
 export interface OnErrorEvent {
   nativeEvent: {
     error: string;
-    /** `NETWORK`, `DECODE`, `CACHE_MISS`, `BLOCKED`, `UNKNOWN`, or a security code. */
+    /**
+     * `HTTP_CLIENT`, `HTTP_SERVER`, `NETWORK`, `DECODE`, `CACHE_MISS`,
+     * `UNKNOWN`, or a security code such as `INSECURE_SCHEME`.
+     */
     code: string;
     /** HTTP status when the failure came from a response, otherwise 0. */
     status: number;
+    /** Whether a manual retry could still succeed. */
     retryable: boolean;
   };
 }
@@ -173,15 +179,19 @@ export type ImageStyle = RNImageStyle &
     overlayColor?: string;
   };
 
+/** A bundled asset (`require('./a.png')`) or an absolute URL. */
+export type LocalImage = ImageRequireSource | string;
+
 export interface NextImageProps extends AccessibilityProps, ViewProps {
   source?: Source | ImageRequireSource;
   /** Shown when `source` fails. A bundled asset or an absolute URL. */
-  defaultSource?: ImageRequireSource | string;
+  defaultSource?: LocalImage;
   /** Shown while `source` loads. A bundled asset or an absolute URL. */
-  placeholder?: ImageRequireSource | string;
+  placeholder?: LocalImage;
   resizeMode?: ResizeMode;
   transition?: Transition;
   transitionDuration?: number;
+  /** Rounds the image and the container. Falls back to `style.borderRadius`. */
   borderRadius?: number;
   isCircle?: boolean;
   downsample?: boolean;
@@ -194,7 +204,8 @@ export interface NextImageProps extends AccessibilityProps, ViewProps {
    * direction; `0` waits until the image is actually visible; `Infinity`
    * disables the check.
    *
-   * Cached images ignore this entirely and render immediately.
+   * Cached images and bundled assets ignore this entirely and render
+   * immediately.
    */
   prefetchThreshold?: number;
   /** Attempts after the first failure. Defaults to 2, maximum 10. */
@@ -212,50 +223,35 @@ export interface NextImageProps extends AccessibilityProps, ViewProps {
   children?: React.ReactNode;
 }
 
-/**
- * Bundled assets and Metro's dev server URLs are trusted by construction, so
- * they skip the URL policy that applies to remote sources.
- */
-function resolveLocalUri(
-  value: ImageRequireSource | string | undefined
-): string | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value === 'number') {
-    const resolved = Image.resolveAssetSource(value);
-    return resolved?.uri ?? null;
-  }
-  if (typeof value === 'string' && value.length > 0) {
-    return value;
-  }
-  return null;
-}
-
 type PreparedSource =
   | { kind: 'empty' }
   | { kind: 'ok'; source: NativeSource }
   | { kind: 'invalid'; code: SecurityErrorCode; message: string };
 
+/**
+ * `require()`d assets resolve through the packager. In development that is a
+ * Metro dev server url, in release a bare drawable name (Android) or a
+ * `file://` url inside the app bundle (iOS). All three are trusted by
+ * construction and are marked `bundled` so native skips the URL policy.
+ */
+function prepareBundledAsset(asset: number): PreparedSource {
+  const resolve = (
+    Image as unknown as {
+      resolveAssetSource?: (asset: number) => { uri?: string } | null;
+    }
+  ).resolveAssetSource;
+  const uri = typeof resolve === 'function' ? resolve(asset)?.uri : undefined;
+  if (typeof uri !== 'string' || uri.length === 0) {
+    return { kind: 'empty' };
+  }
+  return { kind: 'ok', source: bundledSource(uri) };
+}
+
 function prepareSource(
   source: Source | ImageRequireSource | undefined
 ): PreparedSource {
   if (typeof source === 'number') {
-    const uri = resolveLocalUri(source);
-    if (uri == null) {
-      return { kind: 'empty' };
-    }
-    return {
-      kind: 'ok',
-      source: {
-        uri,
-        headers: [],
-        priority: 'normal',
-        cache: 'immutable',
-        cacheDuration: 0,
-        cacheKey: '',
-      },
-    };
+    return prepareBundledAsset(source);
   }
 
   const resolution = resolveSource(source as Source | undefined);
@@ -280,6 +276,17 @@ function prepareSource(
         resolution.message
       ),
     };
+  }
+  return { kind: 'empty' };
+}
+
+/** `placeholder` and `defaultSource` follow the same rules as `source`. */
+function prepareLocalImage(value: LocalImage | undefined): PreparedSource {
+  if (typeof value === 'number') {
+    return prepareBundledAsset(value);
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    return prepareSource({ uri: value });
   }
   return { kind: 'empty' };
 }
@@ -327,7 +334,38 @@ function NextImageBase({
   );
   const nativeSource = prepared.kind === 'ok' ? prepared.source : null;
 
-  const gated = Number.isFinite(prefetchThreshold) && prefetchThreshold >= 0;
+  const preparedPlaceholder = useMemo(
+    () => prepareLocalImage(placeholder),
+    [placeholder]
+  );
+  const preparedDefault = useMemo(
+    () => prepareLocalImage(defaultSource),
+    [defaultSource]
+  );
+  const nativePlaceholder =
+    preparedPlaceholder.kind === 'ok' ? preparedPlaceholder.source : null;
+  const nativeDefault =
+    preparedDefault.kind === 'ok' ? preparedDefault.source : null;
+
+  // A rejected placeholder is a developer mistake, not a load failure, so it
+  // is only warned about.
+  const placeholderWarning =
+    preparedPlaceholder.kind === 'invalid'
+      ? `NextImage: placeholder ignored: ${preparedPlaceholder.message}`
+      : preparedDefault.kind === 'invalid'
+        ? `NextImage: defaultSource ignored: ${preparedDefault.message}`
+        : null;
+  useEffect(() => {
+    if (__DEV__ && placeholderWarning != null) {
+      console.warn(placeholderWarning);
+    }
+  }, [placeholderWarning]);
+
+  // Bundled assets are local, so there is nothing to defer.
+  const gated =
+    Number.isFinite(prefetchThreshold) &&
+    prefetchThreshold >= 0 &&
+    nativeSource?.bundled !== true;
   const [nearViewport, setNearViewport] = useState(!gated);
   // Derived rather than stored, so raising the threshold to Infinity releases
   // an image that is still waiting to be measured.
@@ -402,6 +440,18 @@ function NextImageBase({
     [forwardedRef]
   );
 
+  // `borderRadius` may come from the prop or from the style, like a plain
+  // `<Image>`; the native view and the container both round to it.
+  const flatStyle = useMemo(() => StyleSheet.flatten(style), [style]);
+  const styleRadius = flatStyle?.borderRadius;
+  const resolvedRadius = clampFloat(
+    borderRadius ?? (typeof styleRadius === 'number' ? styleRadius : undefined),
+    0,
+    Number.MAX_SAFE_INTEGER,
+    0
+  );
+  const circle = isCircle === true;
+
   const nativeProps = useMemo(
     () => ({
       resizeMode: normalizeEnum(resizeModeProp, RESIZE_MODES, 'cover'),
@@ -412,9 +462,9 @@ function NextImageBase({
         MAX_TRANSITION_DURATION_MS,
         300
       ),
-      borderRadius: clampFloat(borderRadius, 0, Number.MAX_SAFE_INTEGER, 0),
+      cornerRadius: resolvedRadius,
       blurRadius: clampInt(blurRadius, 0, MAX_BLUR_RADIUS, 0),
-      isCircle: isCircle === true,
+      isCircle: circle,
       downsample: downsample !== false,
       grayscale: grayscale === true,
       retryCount: clampInt(retryCount, 0, MAX_RETRY_COUNT, 2),
@@ -424,9 +474,9 @@ function NextImageBase({
       resizeModeProp,
       transitionProp,
       transitionDuration,
-      borderRadius,
+      resolvedRadius,
       blurRadius,
-      isCircle,
+      circle,
       downsample,
       grayscale,
       retryCount,
@@ -434,32 +484,48 @@ function NextImageBase({
     ]
   );
 
-  const resolvedDefaultSource = useMemo(
-    () => resolveLocalUri(defaultSource),
-    [defaultSource]
-  );
-  const resolvedPlaceholder = useMemo(
-    () => resolveLocalUri(placeholder),
-    [placeholder]
+  // The container clips to the same shape, so a `backgroundColor` in `style`
+  // never shows square corners behind a rounded image. A very large radius is
+  // scaled down to half the shorter side, which is what makes a circle.
+  const containerStyle = useMemo(
+    () => [
+      styles.container,
+      style,
+      circle
+        ? styles.circle
+        : resolvedRadius > 0
+          ? { borderRadius: resolvedRadius }
+          : null,
+    ],
+    [style, circle, resolvedRadius]
   );
 
   // Without a native view (web, or a missing autolink) fall back to the
   // platform image so the tree still renders.
   const NativeView = NextImageView;
+  const fallbackSource = useMemo(() => {
+    // react-native-web resolves bundled assets itself.
+    if (typeof source === 'number') {
+      return source;
+    }
+    if (nativeSource == null) {
+      return null;
+    }
+    const headers: Record<string, string> = {};
+    for (const header of nativeSource.headers) {
+      headers[header.name] = header.value;
+    }
+    return { uri: nativeSource.uri, headers };
+  }, [nativeSource, source]);
 
   return (
-    <View
-      {...rest}
-      style={[styles.container, style]}
-      ref={setRef}
-      onLayout={handleLayout}
-    >
+    <View {...rest} style={containerStyle} ref={setRef} onLayout={handleLayout}>
       {nativeSource != null && NativeView != null ? (
         <NativeView
           style={StyleSheet.absoluteFill}
           source={nativeSource}
-          defaultSource={resolvedDefaultSource}
-          placeholder={resolvedPlaceholder}
+          defaultSource={nativeDefault}
+          placeholder={nativePlaceholder}
           tintColor={tintColor}
           deferNetwork={deferNetwork}
           onNextImageLoadStart={onLoadStart}
@@ -470,10 +536,10 @@ function NextImageBase({
           {...nativeProps}
         />
       ) : null}
-      {nativeSource != null && NativeView == null ? (
+      {fallbackSource != null && NativeView == null ? (
         <Image
           style={StyleSheet.absoluteFill}
-          source={{ uri: nativeSource.uri }}
+          source={fallbackSource}
           resizeMode={nativeProps.resizeMode}
           blurRadius={nativeProps.blurRadius}
           onLoadStart={onLoadStart}
@@ -552,8 +618,8 @@ export interface NextImageStaticProperties {
   configure(config: NextImageConfig): void;
   getConfig(): SecurityConfig;
   /** Warm the cache. Invalid or blocked sources are skipped. */
-  preload(sources: Source[]): void;
-  /** Warm the cache and resolve with the number of accepted URIs. */
+  preload(sources: Array<Source | ImageRequireSource>): void;
+  /** Warm the cache. Resolves when the batch has finished, with the number of images now cached. */
   prefetch(uris: string[], requestPriority?: Priority): Promise<number>;
   clearMemoryCache(): Promise<void>;
   clearDiskCache(): Promise<void>;
@@ -613,22 +679,17 @@ NextImage.configure = (config: NextImageConfig) => {
 
 NextImage.getConfig = () => getSecurityConfig();
 
-NextImage.preload = (sources: Source[]) => {
+NextImage.preload = (sources: Array<Source | ImageRequireSource>) => {
   if (!Array.isArray(sources) || NextImageModule?.preload == null) {
     return;
   }
   const prepared: NativeSource[] = [];
   for (const candidate of sources) {
-    const resolution = resolveSource(candidate);
-    if (resolution.kind === 'ok') {
-      prepared.push(resolution.source);
-    } else if (resolution.kind === 'invalid' && __DEV__) {
-      console.warn(
-        `NextImage.preload: ${describeRejection(
-          candidate?.uri ?? '',
-          resolution.message
-        )}`
-      );
+    const result = prepareSource(candidate);
+    if (result.kind === 'ok') {
+      prepared.push(result.source);
+    } else if (result.kind === 'invalid' && __DEV__) {
+      console.warn(`NextImage.preload: ${result.message}`);
     }
   }
   if (prepared.length > 0) {
@@ -683,6 +744,9 @@ NextImage.setCacheLimits = ({ memoryBytes = 0, diskBytes = 0 }) => {
 const styles = StyleSheet.create({
   container: {
     overflow: 'hidden',
+  },
+  circle: {
+    borderRadius: 9999,
   },
 });
 

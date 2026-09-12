@@ -35,6 +35,8 @@ data class NextImageConfig(
   companion object {
     const val DEFAULT_DISK_CACHE_BYTES: Long = 250L * 1024 * 1024
     const val DEFAULT_CACHE_DURATION_MINUTES: Double = 10080.0
+    /** Roughly ten years: what `cache: 'immutable'` means when no duration is given. */
+    const val IMMUTABLE_CACHE_DURATION_MINUTES: Double = 5256000.0
     const val MIN_MEMORY_CACHE_BYTES: Long = 1L * 1024 * 1024
     const val MIN_DISK_CACHE_BYTES: Long = 4L * 1024 * 1024
 

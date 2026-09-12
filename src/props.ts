@@ -81,6 +81,12 @@ export type NativeSource = {
   cache: Cache;
   cacheDuration: number;
   cacheKey: string;
+  /**
+   * True for a `require()`d asset. Metro serves those over plain http in
+   * development and the app bundle holds them in release, so they are trusted
+   * by construction and skip the URL policy on every layer.
+   */
+  bundled: boolean;
 };
 
 export type SourceResolution =
@@ -211,7 +217,25 @@ export function resolveSource(
         typeof source.cacheKey === 'string' && source.cacheKey.length > 0
           ? source.cacheKey
           : '',
+      bundled: false,
     },
+  };
+}
+
+/**
+ * The native shape of a bundled asset that Metro or the app bundle serves.
+ * Nothing about it is validated: the uri came from the packager, not from
+ * user input, and it never expires because a changed asset gets a new uri.
+ */
+export function bundledSource(uri: string): NativeSource {
+  return {
+    uri,
+    headers: [],
+    priority: 'normal',
+    cache: 'immutable',
+    cacheDuration: IMMUTABLE_CACHE_DURATION_MINUTES,
+    cacheKey: '',
+    bundled: true,
   };
 }
 

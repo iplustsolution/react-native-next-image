@@ -58,8 +58,12 @@ describe('validateUri', () => {
     );
   });
 
-  it('allows bundled asset schemes without a host', () => {
-    expect(codeFor('asset:/images/logo.png')).toBeNull();
+  it('allows android resource and content uris', () => {
+    expect(codeFor('android.resource://com.app/drawable/logo')).toBeNull();
+    expect(codeFor('content://media/external/images/media/1')).toBeNull();
+    // Nothing else local is trusted by scheme alone: bundled assets are
+    // resolved by NextImage itself and marked as such.
+    expect(codeFor('asset:/images/logo.png')).toBe('SCHEME_NOT_ALLOWED');
   });
 
   it('blocks credentials embedded in the url', () => {

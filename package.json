@@ -1,7 +1,7 @@
 {
   "name": "react-native-next-image",
   "version": "0.0.6",
-  "description": "react-native-next-image",
+  "description": "Fast, cache-first image component for React Native. Downloads a URL once and renders it from memory or disk after that. Coil 3 on Android, Kingfisher on iOS, New Architecture ready.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
   "exports": {
@@ -10,7 +10,8 @@
       "types": "./lib/typescript/src/index.d.ts",
       "default": "./lib/module/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./scripts/*": "./scripts/*"
   },
   "files": [
     "src",
@@ -19,6 +20,7 @@
     "ios",
     "cpp",
     "*.podspec",
+    "scripts/next_image_pods.rb",
     "react-native.config.js",
     "!ios/build",
     "!android/build",
@@ -49,7 +51,19 @@
   "keywords": [
     "react-native",
     "ios",
-    "android"
+    "android",
+    "image",
+    "fast-image",
+    "cache",
+    "image-cache",
+    "coil",
+    "kingfisher",
+    "fabric",
+    "turbo-module",
+    "new-architecture",
+    "prefetch",
+    "placeholder",
+    "blurhash-free"
   ],
   "repository": {
     "type": "git",

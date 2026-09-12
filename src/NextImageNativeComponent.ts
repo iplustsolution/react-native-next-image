@@ -1,5 +1,4 @@
-/* eslint-disable @react-native/no-deep-imports */
-import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
+import { codegenNativeComponent } from 'react-native';
 import type { ViewProps, ColorValue } from 'react-native';
 import type {
   Float,
@@ -9,21 +8,27 @@ import type {
 } from 'react-native/Libraries/Types/CodegenTypes';
 
 type Headers = ReadonlyArray<Readonly<{ name: string; value: string }>>;
-type Priority = WithDefault<'low' | 'normal' | 'high', 'normal'>;
-type CacheControl = WithDefault<
-  'immutable' | 'web' | 'cacheOnly' | 'reload',
-  'immutable'
->;
 type Transition = WithDefault<
   'fade' | 'none' | 'slide' | 'scale' | 'gravity',
   'none'
 >;
 
+/**
+ * One shape for `source`, `placeholder` and `defaultSource`, so all three go
+ * through the same validation, cache rules and local asset handling natively.
+ *
+ * `priority` and `cache` are plain strings here rather than string unions:
+ * codegen names a nested enum after its field alone, so the same union in
+ * three structs would generate three conflicting C++ enums. The JS layer only
+ * ever sends the known values, and native falls back to the default otherwise.
+ */
 type NextImageSource = Readonly<{
   uri?: string;
   headers?: Headers;
-  priority?: Priority;
-  cache?: CacheControl;
+  /** `low`, `normal` (default) or `high`. */
+  priority?: string;
+  /** `immutable` (default), `web`, `cacheOnly` or `reload`. */
+  cache?: string;
   /**
    * How long a downloaded image stays valid, in minutes.
    * Default is 10080 (7 days). Use decimals for sub-minute values.
@@ -35,6 +40,12 @@ type NextImageSource = Readonly<{
    * new cache entry on every render.
    */
   cacheKey?: string;
+  /**
+   * True for a `require()`d asset: Metro serves it over plain http in
+   * development and the app bundle holds it in release (a bare drawable name
+   * on Android, a `file://` url on iOS). Bundled sources skip the URL policy.
+   */
+  bundled?: WithDefault<boolean, false>;
 }>;
 
 type OnErrorEvent = Readonly<{
@@ -68,16 +79,19 @@ interface NativeProps extends ViewProps {
   onNextImageLoadStart?: BubblingEventHandler<Readonly<{}>>;
   onNextImageProgress?: BubblingEventHandler<OnProgressEvent>;
   source?: NextImageSource;
-  defaultSource?: string | null;
+  /** Shown when `source` fails. */
+  defaultSource?: NextImageSource;
+  /** Shown while `source` loads. */
+  placeholder?: NextImageSource;
   resizeMode?: WithDefault<'contain' | 'cover' | 'stretch' | 'center', 'cover'>;
   tintColor?: ColorValue;
   blurRadius?: Int32;
   transition?: Transition;
   transitionDuration?: Int32;
-  borderRadius?: Float;
+  /** Named apart from the view style's `borderRadius`, which Fabric parses on every component. */
+  cornerRadius?: Float;
   isCircle?: WithDefault<boolean, false>;
   downsample?: WithDefault<boolean, true>;
-  placeholder?: string | null;
   grayscale?: WithDefault<boolean, false>;
   /**
    * While true the view serves the image from cache only and never opens a

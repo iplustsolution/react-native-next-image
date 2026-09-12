@@ -16,7 +16,10 @@
 
 using namespace facebook::react;
 
-static NSDictionary *_Nullable NextImageSourceDictionary(const NextImageViewSourceStruct &source)
+// `source`, `placeholder` and `defaultSource` share one shape in the spec, but
+// codegen emits a distinct struct for each prop, hence the template.
+template <typename SourceStruct>
+static NSDictionary *_Nullable NextImageSourceDictionary(const SourceStruct &source)
 {
   if (source.uri.empty()) {
     return nil;
@@ -33,10 +36,11 @@ static NSDictionary *_Nullable NextImageSourceDictionary(const NextImageViewSour
   return @{
     @"uri" : RCTNSStringFromString(source.uri),
     @"headers" : headers,
-    @"priority" : RCTNSStringFromString(toString(source.priority)),
-    @"cache" : RCTNSStringFromString(toString(source.cache)),
+    @"priority" : RCTNSStringFromString(source.priority),
+    @"cache" : RCTNSStringFromString(source.cache),
     @"cacheDuration" : @(source.cacheDuration),
     @"cacheKey" : RCTNSStringFromString(source.cacheKey),
+    @"bundled" : @(source.bundled),
   };
 }
 
@@ -139,12 +143,12 @@ static NSDictionary *_Nullable NextImageSourceDictionary(const NextImageViewSour
   const auto &newProps = *std::static_pointer_cast<const NextImageViewProps>(props);
 
   _imageView.source = NextImageSourceDictionary(newProps.source);
-  _imageView.defaultSourceUri = RCTNSStringFromStringNilIfEmpty(newProps.defaultSource);
-  _imageView.placeholderUri = RCTNSStringFromStringNilIfEmpty(newProps.placeholder);
+  _imageView.defaultSource = NextImageSourceDictionary(newProps.defaultSource);
+  _imageView.placeholderSource = NextImageSourceDictionary(newProps.placeholder);
   _imageView.resizeMode = RCTNSStringFromString(toString(newProps.resizeMode));
   _imageView.transition = RCTNSStringFromString(toString(newProps.transition));
   _imageView.transitionDuration = (double)newProps.transitionDuration;
-  _imageView.borderRadiusValue = (CGFloat)newProps.borderRadius;
+  _imageView.borderRadiusValue = (CGFloat)newProps.cornerRadius;
   _imageView.isCircle = newProps.isCircle;
   _imageView.downsample = newProps.downsample;
   _imageView.grayscale = newProps.grayscale;

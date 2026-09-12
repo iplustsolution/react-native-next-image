@@ -39,6 +39,16 @@ Everything else in this library exists to support that rule.
 
 ---
 
+## Requirements
+
+| | Minimum |
+| :--- | :--- |
+| React Native | 0.80 (New Architecture) |
+| iOS | 15.1 |
+| Android | API 24, Kotlin 2.0.21 |
+
+---
+
 ## Installation
 
 ```bash
@@ -49,64 +59,40 @@ npm install react-native-next-image
 
 ### iOS
 
+`NextImage` depends on [Kingfisher](https://github.com/onevcat/Kingfisher).
+Two of Kingfisher's build settings do not survive a static-library CocoaPods
+install, which is what a React Native app uses unless it opts into
+`use_frameworks!`, so the package ships a helper that fixes them. Add two lines
+to your `ios/Podfile`:
+
+```ruby
+require_relative '../node_modules/react-native-next-image/scripts/next_image_pods'
+
+# ...
+
+post_install do |installer|
+  react_native_post_install(installer, config[:reactNativePath])
+  next_image_post_install(installer)
+end
+```
+
+Then:
+
 ```bash
 cd ios && pod install
 ```
 
-`NextImage` depends on [Kingfisher](https://github.com/onevcat/Kingfisher) 8,
-and two of Kingfisher's own build settings need a nudge from your app. Add this
-to the `post_install` block in your `Podfile`:
-
-```ruby
-post_install do |installer|
-  react_native_post_install(installer, config[:reactNativePath])
-
-  installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      # Kingfisher declares iOS 13, and its resource bundle target inherits
-      # that, which Xcode 16 and newer reject. React Native's own post install
-      # step only raises pod targets, so resource bundles need this pass too.
-      current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f
-      if current > 0 && current < min_ios_version_supported.to_f
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
-      end
-
-      # Kingfisher's podspec asks for library evolution. CocoaPods also gives
-      # every Swift pod a clang module map, so the emitted .swiftinterface
-      # contains `@_exported import Kingfisher` and verifying it fails.
-      # Library evolution buys nothing for a pod built from source inside the
-      # app, so it is turned off here.
-      if target.name == 'Kingfisher'
-        config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'NO'
-        config.build_settings['SWIFT_VERIFY_EMITTED_MODULE_INTERFACE'] = 'NO'
-      end
-    end
-  end
-end
-```
-
-Without the first pass the build fails with:
-
-```
-The iOS Simulator deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to
-13.0, but the range of supported deployment target versions is 15.0 to 27.0
-```
-
-and without the second, with:
-
-```
-error: underlying Objective-C module 'Kingfisher' not found
-error: failed to verify module interface of 'Kingfisher'
-```
-
-Both passes are applied in [`example/ios/Podfile`](./example/ios/Podfile), which
-is built on every commit, with `use_modular_headers!` on.
+Without the helper, the build fails with
+`underlying Objective-C module 'Kingfisher' not found` and, on Xcode 27, with
+`The iOS Simulator deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to 13.0`.
+[`scripts/next_image_pods.rb`](./scripts/next_image_pods.rb) explains both.
+The helper is harmless under `use_frameworks!`, and the example app in
+[`example/ios/Podfile`](./example/ios/Podfile) is built with it on every commit.
 
 ### Android
 
 Nothing to configure. Autolinking picks up the module, and Coil 3, OkHttp and
-the Kotlin coroutines runtime come in as transitive dependencies. `minSdkVersion`
-is 24.
+the Kotlin coroutines runtime come in as transitive dependencies.
 
 ---
 
@@ -123,16 +109,23 @@ import NextImage from 'react-native-next-image';
     cache: 'immutable',
     cacheDuration: 60, // minutes
   }}
+  placeholder={require('./placeholder.png')}
+  defaultSource={require('./fallback.png')}
   prefetchThreshold={4}
   transition="fade"
   borderRadius={20}
   style={{ width: '100%', height: 300 }}
   onLoad={(event) => {
     // 'memory' or 'disk' means no network request was made.
-    console.log(event.nativeEvent.cacheType);
+    console.log(event.nativeEvent.cacheType, event.nativeEvent.elapsed, 'ms');
   }}
 />;
 ```
+
+`source`, `placeholder` and `defaultSource` all accept a bundled asset from
+`require()` as well as a URL. Bundled assets work in development (served by
+Metro) and in release builds (read from the app bundle), and they skip the URL
+policy because they never came from user input.
 
 ---
 
@@ -155,6 +148,11 @@ Every request is resolved in this order, and stops at the first hit:
    restart.
 3. **Network.** Only reached when the entry is missing or its lifetime expired.
 
+The downloaded bytes are always kept under the image's own key, next to any
+resized, blurred or grayscale rendering, so a changed view size or effect is
+rebuilt from them instead of downloaded again. `removeFromCache` removes the
+bytes and every rendering made from them.
+
 ### Server cache headers are ignored by default
 
 This is the part that makes "fetch once" true in practice. A lot of servers and
@@ -162,10 +160,14 @@ CDNs send `no-store`, `no-cache` or a short `max-age` on images, which would
 force a download on every render.
 
 - **Android** rewrites `Cache-Control` on the response to the lifetime you asked
-  for, before Coil stores it. `ETag` and `Last-Modified` are kept, so
-  revalidating after expiry can still answer `304`.
+  for before Coil stores it, and reads it back with Coil's header-aware cache
+  strategy, so the entry expires after exactly `cacheDuration`. `ETag` and
+  `Last-Modified` are kept, so revalidating after expiry can still answer `304`.
 - **iOS** never consults cache headers: Kingfisher's own per-request expiration
   is what decides.
+
+The memory tier follows the same lifetime on both platforms, so a short
+`cacheDuration` is not defeated by a memory hit within the session.
 
 Set `respectServerCacheHeaders: true` in `NextImage.configure` to give the
 server back that control, or use `cache: 'web'` for a single image.
@@ -179,7 +181,7 @@ so `0.5` is 30 seconds.
 | :--- | :--- |
 | `'immutable'` *(default)* | Cache and never re-validate. With no `cacheDuration` the entry never expires. |
 | `'web'` | Honour the server's cache headers. On iOS this falls back to a 7 day lifetime, because Kingfisher manages expiry itself. |
-| `'cacheOnly'` | Never touch the network. Fails with code `CACHE_MISS` when the entry is missing. |
+| `'cacheOnly'` | Never touch the network. Fails with code `CACHE_MISS` when the entry is missing or expired. |
 | `'reload'` | Skip the cache for this request and replace the stored entry. An explicit refresh outranks `prefetchThreshold`, so it downloads even while the image is off screen. |
 
 ### Cache keys and signed URLs
@@ -233,15 +235,19 @@ it waits. The same rule is applied horizontally for carousels.
 | `4` *(default)* | 400%: four screens above and below. |
 | `Infinity` | No gating; every mounted image downloads immediately. |
 
-Two details that matter:
+Three details that matter:
 
 - **A cached image ignores the threshold completely.** The native view is
   mounted right away and reads memory and disk no matter where it is; the
   threshold only gates the network. Scrolling through a list you have seen
   before makes no requests at all.
+- **A deferred image never opens a connection.** On Android, Coil expresses
+  "no network" as an `only-if-cached` request header and relies on an HTTP
+  cache to refuse it; `NextImage` answers that refusal itself, so nothing goes
+  out. On iOS the request is cache-only by construction.
 - **One shared tracker measures every pending image**, and it stops running as
   soon as nothing is waiting. Nothing polls in the background for images that
-  have already loaded.
+  have already loaded. Bundled assets are never gated.
 
 You can change how often pending images are re-measured (250 ms by default):
 
@@ -257,11 +263,12 @@ setViewportPollInterval(500);
 
 Defaults are strict, and every rule is enforced twice: in JS before the request
 is created, and again in Kotlin and Swift for anything that reaches native
-directly.
+directly. `placeholder` and `defaultSource` URLs go through the same policy as
+`source`.
 
 | Default | Rule |
 | :--- | :--- |
-| `https` only | `http://` is refused unless you opt in, so tokens cannot travel in clear text. On Android the cleartext connection spec is not even offered to OkHttp. |
+| `https` only | `http://` is refused unless you opt in, so tokens cannot travel in clear text. On Android a release build does not even offer the cleartext connection spec to OkHttp. |
 | No `data:` or `file:` | Both are opt-in. `data:` is also size capped. |
 | No credentials in URLs | `https://user:pass@host/…` is refused. |
 | Private networks blocked | Loopback, link-local, RFC 1918, CGNAT, multicast, `*.local`, `*.internal` and `169.254.169.254` are refused, so a server-supplied URL cannot turn the app into an SSRF proxy. |
@@ -271,7 +278,13 @@ directly.
 
 Nothing is silently escaped. An unsafe URL is refused and surfaced through
 `onError` with a machine readable `code` and the URL itself minus its query
-string; an unsafe header is dropped and the rest of the request continues.
+string; an unsafe header is dropped and the rest of the request continues. A
+rejected `placeholder` or `defaultSource` is dropped with a warning in
+development, because a broken placeholder is not a load failure.
+
+Bundled assets are the one exception to the URL policy: `require()` resolves to
+a Metro URL in development and to the app bundle in release, neither of which
+came from user input.
 
 ### Certificate pinning
 
@@ -308,14 +321,14 @@ P-256/P-384 keys are supported on iOS.
 | Prop | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `source` | `Source \| number` | – | Image source, or a `require()`d asset. |
-| `defaultSource` | `number \| string` | – | Shown when `source` fails. |
-| `placeholder` | `number \| string` | – | Shown while `source` loads. |
+| `defaultSource` | `number \| string` | – | Shown when `source` fails. A `require()`d asset or a URL. |
+| `placeholder` | `number \| string` | – | Shown while `source` loads. A `require()`d asset or a URL. |
 | `resizeMode` | `'contain' \| 'cover' \| 'stretch' \| 'center'` | `'cover'` | |
 | `transition` | `'none' \| 'fade' \| 'slide' \| 'scale' \| 'gravity'` | `'none'` | |
 | `transitionDuration` | `number` | `300` | Milliseconds, capped at 10000. |
 | `prefetchThreshold` | `number` | `4` | Viewport threshold, as a multiple of the screen size. |
-| `borderRadius` | `number` | `0` | Native corner radius. |
-| `isCircle` | `boolean` | `false` | Native circular crop. |
+| `borderRadius` | `number` | `0` | Rounds the image and its container. `style.borderRadius` works too. |
+| `isCircle` | `boolean` | `false` | Circular crop of the image and its container. |
 | `grayscale` | `boolean` | `false` | Native grayscale. |
 | `blurRadius` | `number` | `0` | Native blur, capped at 100. |
 | `tintColor` | `ColorValue` | – | Tints the image as a template. |
@@ -349,16 +362,25 @@ forwarded to the container.
 | `onError` | `{ error, code, status, retryable }` |
 | `onLoadEnd` | – |
 
-`cacheType` is `'memory'`, `'disk'`, `'network'` or `'unknown'`; the first two
-mean no network request was made. `elapsed` is milliseconds from the start of
-the attempt that succeeded to display. In `onProgress`, `total` is `0` when the
-server sends no `Content-Length`.
+`width` and `height` are the decoded bitmap's size in pixels. With `downsample`
+on (the default) that is the view's size, not the file's; set
+`downsample={false}` to get the file's dimensions. `cacheType` is `'memory'`,
+`'disk'`, `'network'` or `'unknown'`; the first two
+mean no network request was made, and a bundled asset or `file:` source
+reports `'disk'`. `elapsed` is milliseconds from the start of the attempt that
+succeeded to display. In `onProgress`, `total` is `0` when the server sends no
+`Content-Length`.
+
+`onLoadStart` fires once per load, not once per native retry. `onLoad` fires
+only for `source`; a `defaultSource` shown after a failure is reported through
+`onError` alone.
 
 `code` is one of `HTTP_CLIENT`, `HTTP_SERVER`, `NETWORK`, `DECODE`,
 `CACHE_MISS`, `UNKNOWN`, or a security code such as `INSECURE_SCHEME`,
 `HOST_NOT_ALLOWED` or `PRIVATE_HOST_BLOCKED`. `onError` fires once, after
 retries are exhausted; `retryable` says whether a manual retry could still
-succeed.
+succeed. Once a source has failed for good the view shows `defaultSource`, or
+nothing.
 
 ### Static methods
 
@@ -366,8 +388,8 @@ succeed.
 NextImage.configure(config);            // security and cache settings
 NextImage.getConfig();                  // the active security config
 
-NextImage.preload(sources);             // warm the cache, with headers and TTL
-NextImage.prefetch(uris, priority);     // warm the cache, resolves with the accepted count
+NextImage.preload(sources);             // warm the cache, with headers and TTL; accepts require()d assets too
+NextImage.prefetch(uris, priority);     // warm the cache, resolves when done with the number now cached
 
 NextImage.isCached(uri, cacheKey?);     // would this render without the network?
 NextImage.removeFromCache(uri, cacheKey?);
@@ -382,7 +404,17 @@ NextImage.setCacheLimits({ memoryBytes, diskBytes });
 Blocked URLs are filtered out of `preload` and `prefetch` rather than sent to
 native. Preloading writes to disk and leaves the memory cache alone, so warming
 a long list cannot evict the images that are on screen; on Android it also
-bounds the decode size while doing so.
+bounds the decode size while doing so. A prefetched entry gets the same
+lifetime a plain `{ uri }` source gets: it never expires.
+
+### Web
+
+On react-native-web there is no native view, so `NextImage` renders the
+platform `<Image>`: `source` (including `require()`d assets), `resizeMode`,
+`blurRadius`, `style`, `children` and the load events work, the browser cache
+does the caching, and the static cache methods resolve to `0`, `false` or
+nothing. `placeholder`, `defaultSource`, transitions, tinting and grayscale are
+ignored there. `isNativeViewAvailable` tells you which mode you are in.
 
 ### Other exports
 
@@ -424,8 +456,9 @@ NextImage.configure({
 ```
 
 Host patterns accept `example.com`, `.example.com`, `*.example.com` and `*`.
-Call `configure` during startup: changing a cache size or a transport setting
-rebuilds the Android loader, which cancels requests that are in flight.
+Call `configure` during startup. Changing a cache size or a transport setting
+rebuilds the Android loader; a view whose request was in flight re-enqueues it
+on the new loader, so nothing is lost, but the memory cache starts empty.
 
 ---
 
@@ -436,10 +469,13 @@ rebuilds the Android loader, which cancels requests that are in flight.
 | Engine | Coil 3 + OkHttp 4 | Kingfisher 8 |
 | Download progress | Response body wrapping, throttled to 50 ms | Kingfisher progress block |
 | `cache: 'web'` | Honours server cache headers | Falls back to a 7 day lifetime |
+| `data:` and `file:` sources | Coil fetchers | Kingfisher data providers; the bytes are not copied into the disk cache |
+| Cache tiers per image | Bytes on disk, one decoded bitmap per size in memory | Bytes plus each rendering on disk and in memory |
+| Bundled assets in release | Drawable resource lookup | `file://` inside the app bundle |
 | Blur | `RenderEffect` on API 31+, a cached downscale below | `BlurImageProcessor` |
 | Grayscale | `ColorMatrix` on the view | `BlackWhiteProcessor` |
 | `grayscale` with `tintColor` | Grayscale wins; one colour filter per view | Both apply |
-| Corner radius, circle | Coil transformations | View layer |
+| Corner radius, circle | Coil transformations, plus the container | View layer, plus the container |
 | Memory cache reporting | Coil cache size | Kingfisher cache cost |
 
 ---
@@ -451,6 +487,9 @@ rebuilds the Android loader, which cancels requests that are in flight.
   request, not eight.
 - **Nothing reloads when nothing changed.** A view keeps what it is showing
   unless the request or the rendered bitmap would actually differ.
+- **Nothing blanks while loading.** The previous image or the placeholder stays
+  on screen until the new image is ready; a deferred cache miss leaves the
+  placeholder alone.
 - **Which props are free to change** differs by platform, because each engine
   does part of the work on the view and part during decode:
 
@@ -466,19 +505,38 @@ rebuilds the Android loader, which cancels requests that are in flight.
   bucketed to 32pt so a one-point layout change does not invalidate the image,
   and only a view that grew re-decodes. `downsample={false}` decodes at full
   size on both platforms.
+- **Clipped list rows** (`removeClippedSubviews`) keep their image and report
+  no extra events when they come back on screen.
 - **Recycled views** cancel their in-flight request and release their image.
+
+---
+
+## Example app
+
+[`example/`](./example) is a React Native 0.85 app with one screen per feature:
+a cached gallery with live memory/disk/network counters, transitions and resize
+modes, effects, every cache API, error and security cases, bundled assets and
+`data:` sources, download progress, and custom headers. All demo images come
+from public hosts.
+
+```bash
+yarn
+yarn example ios
+yarn example android
+yarn example web
+```
 
 ---
 
 ## Testing
 
 ```bash
-yarn test                        # 80 Jest tests: security, props, viewport, component
+yarn test                        # 87 Jest tests: security, props, viewport, component
 yarn typecheck
 yarn lint
 
-yarn test:ios                    # 77 assertions over the Swift URL and header policy
-yarn test:android                # 34 JUnit tests: security, config, cache headers, progress
+yarn test:ios                    # 89 assertions over the Swift URL, header and data uri handling
+yarn test:android                # 43 JUnit tests: security, config, request parsing, cache headers, progress
 ```
 
 Everything above runs on every push and pull request via
@@ -492,6 +550,7 @@ the example app for Android, iOS and web.
 - [x] New Architecture support on both platforms (Fabric view + Turbo Module)
 - [x] Cache-first loading with a per-source lifetime
 - [x] URL and header hardening, with certificate pinning
+- [x] Bundled assets, placeholders and fallbacks that work in release builds
 - [x] Unit tests for JS, Kotlin and Swift, running in CI
 - [ ] Animated image support (GIF, WebP)
 - [ ] Blurhash and thumbhash placeholders

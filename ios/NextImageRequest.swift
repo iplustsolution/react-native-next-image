@@ -1,12 +1,14 @@
+import CryptoKit
 import Foundation
 import Kingfisher
 import UIKit
 
-/// Turns a JS `source` object into a Kingfisher resource plus the options that
+/// Turns a JS `source` object into a Kingfisher source plus the options that
 /// implement NextImage's caching rules.
 ///
-/// Shared by the view and by the preload APIs so a preloaded image lands under
-/// the cache key the view will later look up.
+/// Shared by the view, the placeholder and default source loads, and the
+/// preload APIs so a preloaded image lands under the cache key the view will
+/// later look up.
 struct NextImageRequest {
     /// A TTL at or above this is treated as "never expires".
     private static let immutableTtlSeconds: Double = 60 * 60 * 24 * 365
@@ -18,6 +20,9 @@ struct NextImageRequest {
     let priority: String
     let cache: String
     let ttlSeconds: Double
+    /// A `require()`d asset: a Metro url in development, a `file://` url in
+    /// the app bundle in release. Trusted by construction, never validated.
+    let bundled: Bool
     /// Set when the security policy refused the source; nothing is loaded.
     let blocked: (code: String, message: String)?
 
@@ -32,6 +37,24 @@ struct NextImageRequest {
             priority = "normal"
             cache = "immutable"
             ttlSeconds = 0
+            bundled = false
+            blocked = nil
+            return
+        }
+
+        let cacheValue = NextImageRequest.readCache(source["cache"])
+        let explicitKey = (source["cacheKey"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+
+        if (source["bundled"] as? Bool) == true {
+            let trimmed = rawUri.trimmingCharacters(in: .whitespacesAndNewlines)
+            uri = trimmed
+            headers = [:]
+            headerOrder = []
+            priority = NextImageRequest.readPriority(source["priority"])
+            cache = cacheValue
+            ttlSeconds = NextImageRequest.readTtlSeconds(source["cacheDuration"], cache: cacheValue)
+            cacheKey = explicitKey ?? trimmed
+            bundled = true
             blocked = nil
             return
         }
@@ -45,6 +68,7 @@ struct NextImageRequest {
             priority = "normal"
             cache = "immutable"
             ttlSeconds = 0
+            bundled = false
             blocked = (code, message)
 
         case let .allowed(allowedUri, _):
@@ -52,7 +76,6 @@ struct NextImageRequest {
                 NextImageRequest.readHeaders(source["headers"]),
                 config: config
             )
-            let cacheValue = NextImageRequest.readCache(source["cache"])
 
             uri = allowedUri
             headers = sanitized.headers
@@ -60,19 +83,61 @@ struct NextImageRequest {
             priority = NextImageRequest.readPriority(source["priority"])
             cache = cacheValue
             ttlSeconds = NextImageRequest.readTtlSeconds(source["cacheDuration"], cache: cacheValue)
-            if let key = source["cacheKey"] as? String, !key.isEmpty {
-                cacheKey = key
-            } else {
-                cacheKey = allowedUri
-            }
+            cacheKey = explicitKey ?? NextImageRequest.defaultCacheKey(for: allowedUri)
+            bundled = false
             blocked = nil
         }
     }
 
-    /// Qualified as `KF.ImageResource` because SwiftUI also defines `ImageResource`.
-    var resource: KF.ImageResource? {
-        guard let uri, let url = URL(string: uri) else { return nil }
-        return KF.ImageResource(downloadURL: url, cacheKey: cacheKey)
+    /// The key an image is stored under when the source sets none. A `data:`
+    /// uri is hashed: a two megabyte string is a poor dictionary key.
+    static func defaultCacheKey(for uri: String) -> String {
+        guard uri.count > 5, uri.prefix(5).lowercased() == "data:" else { return uri }
+        let digest = SHA256.hash(data: Data(uri.utf8))
+        return "data:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    var isRemote: Bool {
+        guard let uri else { return false }
+        let lower = uri.lowercased()
+        return lower.hasPrefix("http://") || lower.hasPrefix("https://")
+    }
+
+    /// True when the bytes are read locally rather than downloaded.
+    var isLocal: Bool {
+        guard let uri else { return false }
+        let lower = uri.lowercased()
+        return lower.hasPrefix("file:") || lower.hasPrefix("data:")
+    }
+
+    /// The Kingfisher source. Urls download; `file:` and `data:` uris go
+    /// through a data provider, because Kingfisher's downloader accepts only
+    /// HTTP responses.
+    var kingfisherSource: Source? {
+        guard let uri else { return nil }
+        let lower = uri.lowercased()
+
+        if lower.hasPrefix("data:") {
+            guard let data = NextImageDataUri.decode(uri) else { return nil }
+            return .provider(RawImageDataProvider(data: data, cacheKey: cacheKey))
+        }
+
+        guard let url = NextImageRequest.url(from: uri) else { return nil }
+        if url.isFileURL {
+            return .provider(LocalFileImageDataProvider(fileURL: url, cacheKey: cacheKey))
+        }
+        guard isRemote else { return nil }
+        return .network(KF.ImageResource(downloadURL: url, cacheKey: cacheKey))
+    }
+
+    /// `URL(string:)` refuses unencoded characters that servers accept and
+    /// React Native's own image encodes on the way through, so a second attempt
+    /// is made with the same encoding.
+    private static func url(from uri: String) -> URL? {
+        if let url = URL(string: uri) { return url }
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.insert(charactersIn: "#%")
+        return uri.addingPercentEncoding(withAllowedCharacters: allowed).flatMap { URL(string: $0) }
     }
 
     /// Everything that decides the request identity and the rendered bitmap.
@@ -85,21 +150,29 @@ struct NextImageRequest {
             String(ttlSeconds),
             priority,
             headerOrder.map { "\($0)=\(headers[$0] ?? "")" }.joined(separator: "&"),
+            bundled ? "bundled" : "",
         ].joined(separator: "|")
+    }
+
+    struct Built {
+        let options: KingfisherOptionsInfo
+        /// Identifier of the processor chain, when there is one. Processed
+        /// variants live under `cacheKey@identifier` in the memory cache.
+        let processorIdentifier: String?
     }
 
     /// - Parameters:
     ///   - deferNetwork: restrict the request to the caches, with no connection.
     ///   - targetSize: view size in points, used for downsampling.
     ///   - processors: image processors to chain after downsampling.
-    func options(
+    func build(
         deferNetwork: Bool,
         targetSize: CGSize?,
         processors: [any ImageProcessor]
-    ) -> KingfisherOptionsInfo {
+    ) -> Built {
         var options: KingfisherOptionsInfo = []
 
-        if !headers.isEmpty {
+        if !headers.isEmpty, isRemote {
             let requestHeaders = headers
             options.append(.requestModifier(AnyModifier { request in
                 var modified = request
@@ -146,8 +219,6 @@ struct NextImageRequest {
 
         options.append(.downloadPriority(NextImageEngine.downloadPriority(for: priority)))
         options.append(.redirectHandler(NextImageRedirectHandler.shared))
-        // Keep the unprocessed bytes so changing a processor does not re-download.
-        options.append(.cacheOriginalImage)
         options.append(.backgroundDecode)
 
         var chain = processors
@@ -159,11 +230,33 @@ struct NextImageRequest {
             )
             chain.insert(DownsamplingImageProcessor(size: pixelSize), at: 0)
         }
-        if let combined = NextImageRequest.combine(chain) {
+        let combined = NextImageRequest.combine(chain)
+        if let combined {
             options.append(.processor(combined))
         }
 
-        return options
+        if isLocal {
+            // The bytes are already on disk; copying them into the cache would
+            // only double the storage. The decoded image still lives in memory.
+            options.append(.cacheMemoryOnly)
+        } else {
+            // The downloaded bytes are kept under the plain cache key next to
+            // any processed variant, so a changed processor or view size is
+            // rebuilt from them instead of downloaded again. (Kingfisher cannot
+            // combine this with `.cacheMemoryOnly`: its cache callback state
+            // machine asserts when the memory store completes first.)
+            options.append(.cacheOriginalImage)
+        }
+
+        return Built(options: options, processorIdentifier: combined?.identifier)
+    }
+
+    func options(
+        deferNetwork: Bool,
+        targetSize: CGSize?,
+        processors: [any ImageProcessor]
+    ) -> KingfisherOptionsInfo {
+        build(deferNetwork: deferNetwork, targetSize: targetSize, processors: processors).options
     }
 
     private static func combine(_ processors: [any ImageProcessor]) -> (any ImageProcessor)? {

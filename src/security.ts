@@ -392,12 +392,11 @@ export function validateUri(rawUri: string): UriValidation {
         );
       }
       return { ok: true, uri, parsed };
-    // Bundled and platform-local assets never touch the network.
-    case 'asset':
-    case 'res':
+    // Android resource and content provider uris never touch the network.
+    // `require()`d assets do not come through here at all: NextImage resolves
+    // them itself and marks them as bundled.
     case 'android.resource':
-    case 'ph':
-    case 'assets-library':
+    case 'content':
       return { ok: true, uri, parsed };
     default:
       return reject(

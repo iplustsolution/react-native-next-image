@@ -1,5 +1,6 @@
 package com.nextimage
 
+import android.content.Context
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.CachePolicy
@@ -12,8 +13,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 /**
  * Turns a JS `source` object into a validated Coil request.
  *
- * Shared by the view and by the preload APIs so that a preloaded image lands
- * under the same cache key the view will later look up.
+ * Shared by the view, the placeholder and default source loads, and the
+ * preload APIs so that a preloaded image lands under the same cache key the
+ * view will later look up.
  */
 internal object NextImageRequestFactory {
 
@@ -26,6 +28,12 @@ internal object NextImageRequestFactory {
     val ttlSeconds: Long,
     /** Stable disk cache key: `source.cacheKey` when given, otherwise the uri. */
     val cacheKey: String,
+    /**
+     * A `require()`d asset. Metro serves it over plain http in development;
+     * in release it is a bare drawable name, or a `file://` url when the JS
+     * bundle itself lives on the file system.
+     */
+    val bundled: Boolean = false,
   )
 
   sealed class Parsed {
@@ -41,13 +49,31 @@ internal object NextImageRequestFactory {
   fun parse(source: ReadableMap?, config: NextImageConfig): Parsed {
     if (source == null) return Parsed.Empty
     val rawUri = if (source.hasKey("uri")) source.getString("uri") else null
-    if (rawUri.isNullOrEmpty()) return Parsed.Empty
+    if (rawUri.isNullOrBlank()) return Parsed.Empty
+
+    val cache = readCache(source)
+
+    if (readBundled(source)) {
+      // Trusted by construction: the uri came from the packager, not from
+      // user input. Headers are meaningless for a bundled asset.
+      val uri = rawUri.trim()
+      return Parsed.Ok(
+        Spec(
+          uri = uri,
+          headers = emptyMap(),
+          priority = readPriority(source),
+          cache = cache,
+          ttlSeconds = readTtlSeconds(source, cache),
+          cacheKey = readCacheKey(source) ?: uri,
+          bundled = true,
+        )
+      )
+    }
 
     return when (val result = NextImageSecurity.validateUri(rawUri, config)) {
       is NextImageSecurity.UriResult.Blocked -> Parsed.Blocked(result.code, result.message)
       is NextImageSecurity.UriResult.Allowed -> {
         val sanitized = NextImageSecurity.sanitizeHeaders(readHeaders(source), config)
-        val cache = readCache(source)
         Parsed.Ok(
           Spec(
             uri = result.uri,
@@ -63,6 +89,32 @@ internal object NextImageRequestFactory {
   }
 
   /**
+   * A release build resolves `require()` to a bare drawable name such as
+   * `src_assets_logo`. Anything with a scheme is a url Coil loads directly.
+   */
+  fun localResourceName(spec: Spec): String? {
+    if (!spec.bundled || spec.uri.contains(':')) return null
+    return spec.uri.substringAfterLast('/').takeIf { it.isNotEmpty() }
+  }
+
+  /** What to hand to Coil: a resource id for a release asset, otherwise the uri. */
+  fun resolveData(spec: Spec, context: Context): Any {
+    val name = localResourceName(spec) ?: return spec.uri
+    val resources = context.resources
+    val packageName = context.packageName
+    val drawable = resources.getIdentifier(name, "drawable", packageName)
+    if (drawable != 0) return drawable
+    val raw = resources.getIdentifier(name, "raw", packageName)
+    if (raw != 0) return raw
+    return spec.uri
+  }
+
+  /** Whether the request can reach an HTTP server at all. */
+  fun isRemote(spec: Spec): Boolean =
+    spec.uri.startsWith("http://", ignoreCase = true) ||
+      spec.uri.startsWith("https://", ignoreCase = true)
+
+  /**
    * Apply the caching rules that make a URL download once:
    * memory and disk reads are enabled, the disk key is stable, and the TTL
    * rides along as an internal header for the cache-control interceptor.
@@ -70,11 +122,12 @@ internal object NextImageRequestFactory {
    * @param deferNetwork when true the request may only be served from cache.
    */
   fun apply(
+    context: Context,
     builder: ImageRequest.Builder,
     spec: Spec,
     deferNetwork: Boolean,
   ): ImageRequest.Builder {
-    builder.data(spec.uri)
+    builder.data(resolveData(spec, context))
 
     if (spec.cacheKey != spec.uri) {
       // Leave the memory cache key alone: Coil derives it from the request size
@@ -83,14 +136,20 @@ internal object NextImageRequestFactory {
       builder.diskCacheKey(spec.cacheKey)
     }
 
-    val headers = NetworkHeaders.Builder()
-    for ((name, value) in spec.headers) {
-      headers.add(name, value)
-    }
     if (spec.ttlSeconds > 0 && spec.cache != CACHE_WEB) {
-      headers.set(TTL_HEADER, spec.ttlSeconds.toString())
+      builder.extras.set(TTL_MS_EXTRA, spec.ttlSeconds * 1000L)
     }
-    builder.httpHeaders(headers.build())
+
+    if (isRemote(spec)) {
+      val headers = NetworkHeaders.Builder()
+      for ((name, value) in spec.headers) {
+        headers.add(name, value)
+      }
+      if (spec.ttlSeconds > 0 && spec.cache != CACHE_WEB) {
+        headers.set(TTL_HEADER, spec.ttlSeconds.toString())
+      }
+      builder.httpHeaders(headers.build())
+    }
 
     when {
       // An explicit refresh outranks the viewport gate: serving the stale copy
@@ -119,6 +178,11 @@ internal object NextImageRequestFactory {
 
     return builder
   }
+
+  private fun readBundled(source: ReadableMap): Boolean =
+    source.hasKey("bundled") &&
+      source.getType("bundled") == ReadableType.Boolean &&
+      source.getBoolean("bundled")
 
   private fun readHeaders(source: ReadableMap): List<Pair<String, String>> {
     if (!source.hasKey("headers")) return emptyList()

@@ -18,12 +18,14 @@ export type Source = {
   cache?: Cache;
   cacheDuration?: number;
   cacheKey?: string;
+  /** True for a `require()`d asset, which skips the URL policy. */
+  bundled?: boolean;
 };
 
 export interface Spec extends TurboModule {
   /** Warm the cache for images that are not on screen yet. */
   preload(sources: Array<Source>): void;
-  /** Like `preload`, but resolves with how many URIs were accepted. */
+  /** Like `preload`, but resolves once the batch is done with how many images are now cached. */
   prefetch(uris: Array<string>, priority: string): Promise<number>;
   clearMemoryCache(): Promise<void>;
   clearDiskCache(): Promise<void>;

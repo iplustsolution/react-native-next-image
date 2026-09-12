@@ -2,6 +2,7 @@ package com.nextimage
 
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.request.SuccessResult
 import coil3.size.Precision
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -11,6 +12,8 @@ import com.facebook.react.module.annotations.ReactModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
@@ -36,32 +39,44 @@ class NextImageModule(reactContext: ReactApplicationContext) :
     }
   }
 
+  /** Resolves when the batch has finished, with the number of images now on disk. */
   override fun prefetch(uris: ReadableArray, priority: String, promise: Promise) {
     val context = reactApplicationContext
     val loader = NextImageImageLoader.getLoader(context)
     val config = NextImageConfigStore.current
-    var accepted = 0
+    val requests = mutableListOf<ImageRequest>()
 
     for (index in 0 until uris.size()) {
       val uri = uris.getString(index) ?: continue
       when (val result = NextImageSecurity.validateUri(uri, config)) {
         is NextImageSecurity.UriResult.Blocked -> Unit
         is NextImageSecurity.UriResult.Allowed -> {
+          // Same lifetime a view gives a plain `{ uri }` source, so a
+          // prefetched entry is not treated as expired before the view's would be.
           val spec = NextImageRequestFactory.Spec(
             uri = result.uri,
             headers = emptyMap(),
             priority = priority,
             cache = NextImageRequestFactory.CACHE_IMMUTABLE,
-            ttlSeconds = (NextImageConfig.DEFAULT_CACHE_DURATION_MINUTES * 60).toLong(),
+            ttlSeconds = (NextImageConfig.IMMUTABLE_CACHE_DURATION_MINUTES * 60).toLong(),
             cacheKey = result.uri,
           )
-          loader.enqueue(prefetchRequest(spec))
-          accepted += 1
+          requests.add(prefetchRequest(spec))
         }
       }
     }
 
-    promise.resolve(accepted.toDouble())
+    if (requests.isEmpty()) {
+      promise.resolve(0.0)
+      return
+    }
+
+    scope.launch {
+      val results = requests
+        .map { request -> async { runCatching { loader.execute(request) }.getOrNull() } }
+        .awaitAll()
+      promise.resolve(results.count { it is SuccessResult }.toDouble())
+    }
   }
 
   /**
@@ -70,8 +85,9 @@ class NextImageModule(reactContext: ReactApplicationContext) :
    * cannot push live images out of memory or allocate full size bitmaps.
    */
   private fun prefetchRequest(spec: NextImageRequestFactory.Spec): ImageRequest {
-    val builder = ImageRequest.Builder(reactApplicationContext)
-    NextImageRequestFactory.apply(builder, spec, deferNetwork = false)
+    val context = reactApplicationContext
+    val builder = ImageRequest.Builder(context)
+    NextImageRequestFactory.apply(context, builder, spec, deferNetwork = false)
     return builder
       .memoryCachePolicy(CachePolicy.DISABLED)
       .size(PREFETCH_DECODE_SIZE, PREFETCH_DECODE_SIZE)

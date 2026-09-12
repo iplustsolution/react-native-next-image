@@ -1,161 +1,199 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import {
-  Button,
-  FlatList,
-  SafeAreaView,
+  Linking,
+  Pressable,
+  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import NextImage, {
-  type CacheType,
-  type OnLoadEvent,
-} from 'react-native-next-image';
+import NextImage, { isNativeViewAvailable } from 'react-native-next-image';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import CacheScreen from './screens/CacheScreen';
+import EffectsScreen from './screens/EffectsScreen';
+import ErrorsScreen from './screens/ErrorsScreen';
+import GalleryScreen from './screens/GalleryScreen';
+import HeadersScreen from './screens/HeadersScreen';
+import LocalScreen from './screens/LocalScreen';
+import ProgressScreen from './screens/ProgressScreen';
+import TransitionsScreen from './screens/TransitionsScreen';
+import { colors, spacing } from './theme';
 
-const IMAGE_COUNT = 30;
+// Once per app start, before any image mounts. data: uris are off by default;
+// the Local screen needs them. Everything else keeps the secure defaults.
+NextImage.configure({
+  allowDataUri: true,
+  diskCacheBytes: 100 * 1024 * 1024,
+  requestTimeoutMs: 20000,
+});
 
-type Row = {
-  id: string;
-  uri: string;
+type TabKey =
+  | 'gallery'
+  | 'transitions'
+  | 'effects'
+  | 'cache'
+  | 'errors'
+  | 'local'
+  | 'progress'
+  | 'headers';
+
+const TABS: readonly { key: TabKey; title: string }[] = [
+  { key: 'gallery', title: 'Gallery' },
+  { key: 'transitions', title: 'Transitions' },
+  { key: 'effects', title: 'Effects' },
+  { key: 'cache', title: 'Cache' },
+  { key: 'errors', title: 'Errors' },
+  { key: 'local', title: 'Local' },
+  { key: 'progress', title: 'Progress' },
+  { key: 'headers', title: 'Headers' },
+];
+
+const SCREENS: Record<TabKey, ComponentType> = {
+  gallery: GalleryScreen,
+  transitions: TransitionsScreen,
+  effects: EffectsScreen,
+  cache: CacheScreen,
+  errors: ErrorsScreen,
+  local: LocalScreen,
+  progress: ProgressScreen,
+  headers: HeadersScreen,
 };
 
-const rows: Row[] = Array.from({ length: IMAGE_COUNT }, (_, index) => ({
-  id: String(index),
-  uri: `https://picsum.photos/id/${index + 10}/600/400`,
-}));
+/** `nextimage://tab/cache` opens a tab directly, which keeps device testing scriptable. */
+function tabFromUrl(url: string | null): TabKey | null {
+  const match = url == null ? null : /tab\/([a-z]+)/.exec(url);
+  const key = match?.[1];
+  return key != null && key in SCREENS ? (key as TabKey) : null;
+}
 
-export default function App() {
-  const [stats, setStats] = useState<Record<CacheType, number>>({
-    memory: 0,
-    disk: 0,
-    network: 0,
-    unknown: 0,
-  });
-  const [diskBytes, setDiskBytes] = useState(0);
-  const [prefetched, setPrefetched] = useState(0);
+type AppProps = {
+  /** Set by the native hosts from `NEXTIMAGE_TAB`, so a device test can start on a tab. */
+  initialTab?: string;
+};
 
-  const onLoad = useCallback((event: OnLoadEvent) => {
-    const { cacheType } = event.nativeEvent;
-    setStats((previous) => ({
-      ...previous,
-      [cacheType]: (previous[cacheType] ?? 0) + 1,
-    }));
-  }, []);
-
-  const refreshDiskSize = useCallback(async () => {
-    setDiskBytes(await NextImage.getDiskCacheSize());
-  }, []);
-
-  const clearCaches = useCallback(async () => {
-    await Promise.all([
-      NextImage.clearMemoryCache(),
-      NextImage.clearDiskCache(),
-    ]);
-    setStats({ memory: 0, disk: 0, network: 0, unknown: 0 });
-    await refreshDiskSize();
-  }, [refreshDiskSize]);
-
-  const preloadRest = useCallback(async () => {
-    const count = await NextImage.prefetch(
-      rows.slice(10).map((row) => row.uri),
-      'low'
-    );
-    setPrefetched(count);
-  }, []);
-
-  const header = useMemo(
-    () => (
-      <View style={styles.header}>
-        <Text style={styles.title}>react-native-next-image</Text>
-        <Text style={styles.stats}>
-          memory {stats.memory} · disk {stats.disk} · network {stats.network}
-        </Text>
-        <Text style={styles.stats}>
-          disk cache {(diskBytes / (1024 * 1024)).toFixed(2)} MB · prefetched{' '}
-          {prefetched}
-        </Text>
-        <View style={styles.actions}>
-          <Button title="Disk size" onPress={refreshDiskSize} />
-          <Button title="Prefetch" onPress={preloadRest} />
-          <Button title="Clear" onPress={clearCaches} />
-        </View>
-        <Text style={styles.hint}>
-          Scroll down, then restart the app: every image should report `disk`
-          and no network request should be made.
-        </Text>
-      </View>
-    ),
-    [stats, diskBytes, prefetched, refreshDiskSize, preloadRest, clearCaches]
+export default function App({ initialTab }: AppProps) {
+  const [tab, setTab] = useState<TabKey>(
+    () =>
+      tabFromUrl(initialTab == null ? null : `tab/${initialTab}`) ?? 'gallery'
   );
+  const Active = SCREENS[tab];
+
+  useEffect(() => {
+    Linking.getInitialURL()
+      .then((url) => {
+        const initial = tabFromUrl(url ?? null);
+        if (initial != null) {
+          setTab(initial);
+        }
+      })
+      .catch(() => undefined);
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      const next = tabFromUrl(url);
+      if (next != null) {
+        setTab(next);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <FlatList
-        data={rows}
-        keyExtractor={(row) => row.id}
-        ListHeaderComponent={header}
-        renderItem={({ item, index }) => (
-          <View style={styles.row}>
-            <NextImage
-              style={styles.image}
-              source={{
-                uri: item.uri,
-                priority: index < 4 ? 'high' : 'normal',
-                cache: 'immutable',
-                cacheDuration: 60 * 24,
-              }}
-              resizeMode="cover"
-              transition={index % 2 === 0 ? 'fade' : 'scale'}
-              transitionDuration={250}
-              borderRadius={12}
-              prefetchThreshold={2}
-              onLoad={onLoad}
-            />
-            <Text style={styles.caption}>#{index}</Text>
-          </View>
-        )}
-      />
-    </SafeAreaView>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor={colors.background}
+        />
+        <View style={styles.header}>
+          <Text style={styles.title}>react-native-next-image</Text>
+          <Text style={styles.subtitle}>
+            {isNativeViewAvailable
+              ? 'native view linked'
+              : 'fallback: platform Image, cache APIs are no-ops'}
+          </Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabStrip}
+          contentContainerStyle={styles.tabs}
+        >
+          {TABS.map(({ key, title }) => {
+            const selected = key === tab;
+            return (
+              <Pressable
+                key={key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => setTab(key)}
+                style={[styles.tab, selected && styles.tabSelected]}
+              >
+                <Text
+                  style={[styles.tabLabel, selected && styles.tabLabelSelected]}
+                >
+                  {title}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        <View style={styles.body}>
+          {/* Keyed so switching tabs unmounts the previous screen's state. */}
+          <Active key={tab} />
+        </View>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0b0b0f',
+    backgroundColor: colors.background,
   },
   header: {
-    padding: 16,
-    gap: 6,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    gap: 2,
   },
   title: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  stats: {
-    color: '#a5b4fc',
-    fontVariant: ['tabular-nums'],
-  },
-  hint: {
-    color: '#6b7280',
+  subtitle: {
+    color: colors.textFaint,
     fontSize: 12,
   },
-  actions: {
-    flexDirection: 'row',
-    gap: 12,
+  tabStrip: {
+    flexGrow: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  row: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+  tabs: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
   },
-  image: {
-    width: '100%',
-    height: 200,
-    backgroundColor: '#1f2937',
+  tab: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceRaised,
   },
-  caption: {
-    color: '#6b7280',
-    paddingTop: 4,
+  tabSelected: {
+    backgroundColor: colors.accent,
+  },
+  tabLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tabLabelSelected: {
+    color: colors.onAccent,
+  },
+  body: {
+    flex: 1,
   },
 });

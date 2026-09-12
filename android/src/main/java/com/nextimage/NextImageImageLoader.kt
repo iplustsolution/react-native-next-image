@@ -1,11 +1,12 @@
 package com.nextimage
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import coil3.ImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.memory.MemoryCache
-import coil3.network.CacheStrategy
+import coil3.network.cachecontrol.CacheControlCacheStrategy
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.facebook.react.bridge.ReadableMap
@@ -81,13 +82,17 @@ object NextImageImageLoader {
 
   /**
    * Drop the loader so the next request rebuilds it with the current config.
-   * In-flight requests are cancelled, which is why this only runs for explicit
-   * configuration changes.
+   * In-flight requests are cancelled; a view that sees its request cancelled
+   * this way re-enqueues it on the new loader.
    */
   fun invalidate() {
     synchronized(this) {
-      loader?.shutdown()
+      val previous = loader
       loader = null
+      previous?.shutdown()
+      // Two disk caches must never share a directory, so the old one is
+      // closed before a new loader can open the same folder.
+      previous?.diskCache?.shutdown()
       client?.dispatcher?.executorService?.shutdown()
       client?.connectionPool?.evictAll()
       client = null
@@ -96,14 +101,18 @@ object NextImageImageLoader {
 
   private fun build(context: Context): ImageLoader {
     val config = NextImageConfigStore.current
-    val httpClient = buildClient(config).also { client = it }
+    val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    val httpClient = buildClient(config, debuggable).also { client = it }
 
     return ImageLoader.Builder(context)
       .components {
+        add(NextImageMemoryTtlInterceptor())
         add(
           OkHttpNetworkFetcherFactory(
-            { httpClient },
-            { CacheStrategy.DEFAULT },
+            callFactory = { httpClient },
+            // Honour the Cache-Control headers the interceptor writes, so a
+            // stored entry expires after exactly `cacheDuration`.
+            cacheStrategy = { CacheControlCacheStrategy() },
           )
         )
       }
@@ -131,7 +140,7 @@ object NextImageImageLoader {
       .build()
   }
 
-  private fun buildClient(config: NextImageConfig): OkHttpClient {
+  private fun buildClient(config: NextImageConfig, debuggable: Boolean): OkHttpClient {
     val timeout = config.requestTimeoutMs
 
     val builder = OkHttpClient.Builder()
@@ -150,13 +159,18 @@ object NextImageImageLoader {
         }
       )
       .connectionSpecs(
-        if (config.allowInsecureHttp) {
+        if (config.allowInsecureHttp || debuggable) {
+          // A debug build must reach Metro over plain http for `require()`d
+          // assets. The URL policy still refuses every other http source, and
+          // the app's network security config has the final say.
           listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.CLEARTEXT)
         } else {
           // Without the cleartext spec, an http:// request cannot connect at all.
           listOf(ConnectionSpec.MODERN_TLS)
         }
       )
+      // First, so a cache-only request never reaches the network at all.
+      .addInterceptor(NextImageOnlyIfCachedInterceptor())
       .addInterceptor(
         NextImageCacheControlInterceptor { NextImageConfigStore.current.respectServerCacheHeaders }
       )

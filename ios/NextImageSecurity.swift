@@ -8,6 +8,8 @@ public struct NextImageConfig {
     public static let defaultDiskCacheBytes: UInt = 250 * 1024 * 1024
     public static let defaultMemoryCacheBytes: UInt = 0 // 0 means "let the OS decide"
     public static let defaultCacheDurationMinutes: Double = 10080
+    /// Roughly ten years: what `cache: 'immutable'` means when no duration is given.
+    public static let immutableCacheDurationMinutes: Double = 5_256_000
     public static let minDiskCacheBytes: UInt = 4 * 1024 * 1024
     public static let minMemoryCacheBytes: UInt = 1 * 1024 * 1024
 
@@ -148,8 +150,6 @@ public enum NextImageSecurity {
         "proxy-authorization", "proxy-connection", "te", "trailer",
         "transfer-encoding", "upgrade", "via",
     ]
-
-    private static let localSchemes: Set<String> = ["asset", "ph", "assets-library"]
 
     private static let uriPattern =
         "^([a-zA-Z][a-zA-Z0-9+.-]*):(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?$"
@@ -342,12 +342,12 @@ public enum NextImageSecurity {
                 ? .allowed(uri: uri, parsed: parsed)
                 : .blocked(code: "FILE_URI_NOT_ALLOWED", message: "file: sources are blocked.")
         default:
-            return localSchemes.contains(parsed.scheme)
-                ? .allowed(uri: uri, parsed: parsed)
-                : .blocked(
-                    code: "SCHEME_NOT_ALLOWED",
-                    message: "Unsupported uri scheme \"\(parsed.scheme)\"."
-                )
+            // Nothing else is loadable here. `require()`d assets do not come
+            // through this check at all: they are marked as bundled by JS.
+            return .blocked(
+                code: "SCHEME_NOT_ALLOWED",
+                message: "Unsupported uri scheme \"\(parsed.scheme)\"."
+            )
         }
 
         if parsed.userInfo != nil, !config.allowUriCredentials {
@@ -436,5 +436,39 @@ public enum NextImageSecurity {
         let port = parsed.port.map { ":\($0)" } ?? ""
         let query = parsed.query == nil ? "" : "?<redacted>"
         return "\(parsed.scheme)://\(parsed.host ?? "")\(port)\(parsed.path)\(query)"
+    }
+}
+
+/// `data:` uri decoding, kept Foundation-only so it is covered by `tests/ios`.
+///
+/// Kingfisher's downloader only understands HTTP responses, so an inline image
+/// is decoded here and handed to Kingfisher as raw bytes.
+public enum NextImageDataUri {
+    /// The decoded payload of `data:[<mediatype>][;base64],<data>`, or nil
+    /// when the uri is not a data uri or the payload does not decode.
+    public static func decode(_ uri: String) -> Data? {
+        guard uri.count > 5, uri.prefix(5).lowercased() == "data:",
+              let comma = uri.firstIndex(of: ",")
+        else {
+            return nil
+        }
+        let meta = uri[uri.index(uri.startIndex, offsetBy: 5) ..< comma]
+        let payload = String(uri[uri.index(after: comma)...])
+
+        if meta.lowercased().hasSuffix(";base64") {
+            // Tolerate whitespace, the url-safe alphabet and missing padding,
+            // all of which are common in generated uris.
+            var cleaned = payload
+                .filter { !$0.isWhitespace }
+                .replacingOccurrences(of: "-", with: "+")
+                .replacingOccurrences(of: "_", with: "/")
+            let remainder = cleaned.count % 4
+            if remainder != 0 {
+                cleaned += String(repeating: "=", count: 4 - remainder)
+            }
+            return Data(base64Encoded: cleaned)
+        }
+
+        return (payload.removingPercentEncoding ?? payload).data(using: .utf8)
     }
 }

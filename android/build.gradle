@@ -1,6 +1,6 @@
 buildscript {
   ext.NextImage = [
-    kotlinVersion: "2.0.21",
+    kotlinVersion: "2.1.20",
     minSdkVersion: 24,
     compileSdkVersion: 36
   ]
@@ -31,9 +31,11 @@ apply plugin: "kotlin-android"
 
 apply plugin: "com.facebook.react"
 
-def coilVersion = "3.0.4"
+// Coil 3.2 is the newest release built with Kotlin 2.1, which is what React
+// Native 0.80 through 0.85 ship. Later Coil releases need a Kotlin 2.2+ compiler.
+def coilVersion = "3.2.0"
 def okhttpVersion = "4.12.0"
-def coroutinesVersion = "1.8.1"
+def coroutinesVersion = "1.10.2"
 
 android {
   namespace "com.nextimage"
@@ -67,6 +69,10 @@ dependencies {
   implementation "io.coil-kt.coil3:coil:$coilVersion"
   implementation "io.coil-kt.coil3:coil-network-core:$coilVersion"
   implementation "io.coil-kt.coil3:coil-network-okhttp:$coilVersion"
+  // Coil's default strategy serves a disk entry forever. This one reads the
+  // Cache-Control headers NextImage writes, which is what gives `cacheDuration`
+  // its meaning on Android.
+  implementation "io.coil-kt.coil3:coil-network-cache-control:$coilVersion"
 
   // Declared explicitly: the cache-control and progress interceptors compile
   // against OkHttp and Okio rather than relying on Coil's transitive graph.

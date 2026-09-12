@@ -13,6 +13,8 @@ import UIKit
 ///     is not cached yet has not failed.
 ///  4. Corner radius, circle cropping and tinting are view level, so changing
 ///     them never re-decodes or re-downloads the image.
+///  5. `placeholder` and `defaultSource` are sources like any other: same
+///     policy, same cache, and bundled assets work in release builds.
 @objc(NextImageViewImpl)
 public final class NextImageViewImpl: UIImageView {
     // MARK: Events
@@ -25,12 +27,12 @@ public final class NextImageViewImpl: UIImageView {
 
     // MARK: Props
 
-    /// `{ uri, headers: [{ name, value }], priority, cache, cacheDuration, cacheKey }`.
-    /// One dictionary rather than six props, so the Fabric component view and
-    /// the legacy view manager hand over exactly the same shape.
+    /// `{ uri, headers: [{ name, value }], priority, cache, cacheDuration, cacheKey, bundled }`.
+    /// One dictionary rather than seven props, so the Fabric component view
+    /// and the legacy view manager hand over exactly the same shape.
     @objc public var source: NSDictionary? { didSet { propsDirty = true } }
-    @objc public var defaultSourceUri: String? { didSet { propsDirty = true } }
-    @objc public var placeholderUri: String? { didSet { propsDirty = true } }
+    @objc public var defaultSource: NSDictionary? { didSet { propsDirty = true } }
+    @objc public var placeholderSource: NSDictionary? { didSet { propsDirty = true } }
     @objc public var resizeMode: String = "cover" { didSet { propsDirty = true } }
     @objc public var transition: String = "none" { didSet { propsDirty = true } }
     @objc public var transitionDuration: Double = 300
@@ -48,12 +50,16 @@ public final class NextImageViewImpl: UIImageView {
 
     private var propsDirty = false
     private var task: DownloadTask?
-    private var placeholderTask: DownloadTask?
+    private var secondaryTask: DownloadTask?
     private var loadedSignature: String?
     private var pendingSignature: String?
     private var mainImageLoaded = false
     private var requestStartedAt = Date()
     private var lastLayoutSize: CGSize = .zero
+    /// Identifies the latest `loadImage` call. Kingfisher reports a cancelled
+    /// task asynchronously, by which time a newer task may own `task` and
+    /// `pendingSignature`; the stale completion must not touch them.
+    private var loadToken = 0
 
     public override init(frame: CGRect) {
         super.init(frame: frame)
@@ -134,11 +140,31 @@ public final class NextImageViewImpl: UIImageView {
             return
         }
 
-        guard let resource = request.resource else {
+        guard request.uri != nil else {
             cancelRequests()
             loadedSignature = nil
             mainImageLoaded = false
             showDefaultSource()
+            return
+        }
+
+        guard let kingfisherSource = request.kingfisherSource else {
+            // A uri that passed the policy but cannot be turned into a request:
+            // an undecodable `data:` payload or an unparseable url.
+            cancelRequests()
+            loadedSignature = nil
+            mainImageLoaded = false
+            showDefaultSource()
+            emitError(message: "Image source uri could not be loaded.", code: "DECODE", status: 0)
+            onNextImageLoadEnd?([:])
+            return
+        }
+
+        // Before the first layout the decode size is unknown. Loading now and
+        // again after layout would cost a cancelled request and a second
+        // onLoadStart, so the load waits for `layoutSubviews`, which commits.
+        if downsample, bounds.size == .zero, !mainImageLoaded {
+            propsDirty = true
             return
         }
 
@@ -152,22 +178,29 @@ public final class NextImageViewImpl: UIImageView {
             return
         }
 
-        loadImage(request: request, resource: resource, signature: signature, pendingKey: pendingKey)
+        loadImage(
+            request: request,
+            kingfisherSource: kingfisherSource,
+            signature: signature,
+            pendingKey: pendingKey
+        )
     }
 
     /// Not named `load`: `NSObject` already has a static `load()`.
     private func loadImage(
         request: NextImageRequest,
-        resource: KF.ImageResource,
+        kingfisherSource: Source,
         signature: String,
         pendingKey: String
     ) {
         cancelRequests()
         pendingSignature = pendingKey
         requestStartedAt = Date()
+        loadToken += 1
+        let token = loadToken
 
         if !mainImageLoaded {
-            showPlaceholder()
+            showPlaceholder(for: request)
         }
 
         var processors: [any ImageProcessor] = []
@@ -178,11 +211,15 @@ public final class NextImageViewImpl: UIImageView {
             processors.append(BlurImageProcessor(blurRadius: blurRadiusValue))
         }
 
-        var options = request.options(
+        let built = request.build(
             deferNetwork: deferNetwork,
             targetSize: downsample && bounds.size != .zero ? bounds.size : nil,
             processors: processors
         )
+        var options = built.options
+        if let identifier = built.processorIdentifier {
+            NextImageEngine.shared.rememberProcessor(identifier, forKey: request.cacheKey)
+        }
 
         if tintColorValue != nil {
             options.append(.imageModifier(RenderingModeImageModifier(renderingMode: .alwaysTemplate)))
@@ -200,10 +237,17 @@ public final class NextImageViewImpl: UIImageView {
             options.append(.keepCurrentImageWhileLoading)
         }
 
+        // Kingfisher reports `.none` when it rebuilds a processed variant from
+        // the original on disk, which would read as a download. Where the
+        // original lives right now is what decides the reported cache type.
+        let originalCacheType = request.isLocal
+            ? CacheType.none
+            : ImageCache.default.imageCachedType(forKey: request.cacheKey)
+
         onNextImageLoadStart?([:])
 
         task = kf.setImage(
-            with: resource,
+            with: kingfisherSource,
             placeholder: nil,
             options: options,
             progressBlock: { [weak self] received, total in
@@ -213,7 +257,7 @@ public final class NextImageViewImpl: UIImageView {
                 ])
             },
             completionHandler: { [weak self] result in
-                guard let self else { return }
+                guard let self, token == self.loadToken else { return }
                 self.task = nil
                 self.pendingSignature = nil
 
@@ -221,13 +265,17 @@ public final class NextImageViewImpl: UIImageView {
                 case let .success(value):
                     self.loadedSignature = signature
                     self.mainImageLoaded = true
-                    self.placeholderTask?.cancel()
-                    self.placeholderTask = nil
+                    self.secondaryTask?.cancel()
+                    self.secondaryTask = nil
                     self.applyCustomTransition()
                     self.onNextImageLoad?([
                         "width": value.image.size.width,
                         "height": value.image.size.height,
-                        "cacheType": NextImageViewImpl.cacheTypeName(value.cacheType),
+                        "cacheType": NextImageViewImpl.cacheTypeName(
+                            value.cacheType,
+                            request: request,
+                            originalCacheType: originalCacheType
+                        ),
                         "elapsed": Int(Date().timeIntervalSince(self.requestStartedAt) * 1000),
                     ])
                     self.onNextImageLoadEnd?([:])
@@ -237,15 +285,22 @@ public final class NextImageViewImpl: UIImageView {
                     if self.deferNetwork, error.isCacheMiss {
                         return
                     }
+                    // A request replaced by a newer one reports through that one.
+                    if error.isTaskCancelled || error.isSuperseded {
+                        return
+                    }
                     // Kingfisher has already exhausted `retryCount` attempts.
                     let status = error.httpStatusCode
+                    // The previous image, if any, is not what the caller asked for any more.
+                    self.loadedSignature = nil
+                    self.mainImageLoaded = false
                     self.showDefaultSource()
                     self.emitError(
-                        message: error.localizedDescription,
+                        message: NextImageViewImpl.errorMessage(for: error),
                         code: NextImageViewImpl.errorCode(for: error),
                         status: status,
-                        // A transient failure is worth retrying by hand; a 4xx is not.
-                        retryable: !(400 ... 499).contains(status)
+                        // A transient failure is worth retrying by hand; a 4xx or a cache miss is not.
+                        retryable: !(400 ... 499).contains(status) && !error.isCacheMiss
                     )
                     self.onNextImageLoadEnd?([:])
                 }
@@ -255,34 +310,49 @@ public final class NextImageViewImpl: UIImageView {
 
     /// The placeholder is a separate request so it can come from cache without
     /// blocking the real image, and it is dropped as soon as the real image lands.
-    private func showPlaceholder() {
-        guard let placeholderUri, !placeholderUri.isEmpty,
-              let url = URL(string: placeholderUri),
-              placeholderUri != (source?["uri"] as? String)
+    private func showPlaceholder(for request: NextImageRequest) {
+        secondaryTask?.cancel()
+        secondaryTask = nil
+        let placeholder = NextImageRequest(
+            source: placeholderSource as? [String: Any],
+            config: NextImageConfigStore.shared.current
+        )
+        guard placeholder.uri != nil, placeholder.uri != request.uri,
+              let kingfisherSource = placeholder.kingfisherSource
         else {
             return
         }
-
-        placeholderTask = KingfisherManager.shared.retrieveImage(with: url) { [weak self] result in
-            guard case let .success(value) = result else { return }
-            DispatchQueue.main.async {
-                guard let self, !self.mainImageLoaded else { return }
-                self.image = value.image
-            }
-        }
+        secondaryTask = retrieveSecondary(placeholder, kingfisherSource)
     }
 
     private func showDefaultSource() {
-        guard let defaultSourceUri, !defaultSourceUri.isEmpty,
-              let url = URL(string: defaultSourceUri)
-        else {
+        secondaryTask?.cancel()
+        secondaryTask = nil
+        let fallback = NextImageRequest(
+            source: defaultSource as? [String: Any],
+            config: NextImageConfigStore.shared.current
+        )
+        guard fallback.uri != nil, let kingfisherSource = fallback.kingfisherSource else {
             if !mainImageLoaded {
                 image = nil
             }
             return
         }
+        secondaryTask = retrieveSecondary(fallback, kingfisherSource)
+    }
 
-        KingfisherManager.shared.retrieveImage(with: url) { [weak self] result in
+    /// A placeholder or default image: sized to the view, never deferred, and
+    /// shown only while no real image is on screen.
+    private func retrieveSecondary(_ request: NextImageRequest, _ source: Source) -> DownloadTask? {
+        let built = request.build(
+            deferNetwork: false,
+            targetSize: downsample && bounds.size != .zero ? bounds.size : nil,
+            processors: []
+        )
+        if let identifier = built.processorIdentifier {
+            NextImageEngine.shared.rememberProcessor(identifier, forKey: request.cacheKey)
+        }
+        return KingfisherManager.shared.retrieveImage(with: source, options: built.options) { [weak self] result in
             guard case let .success(value) = result else { return }
             DispatchQueue.main.async {
                 guard let self, !self.mainImageLoaded else { return }
@@ -364,8 +434,8 @@ public final class NextImageViewImpl: UIImageView {
     private func cancelRequests() {
         task?.cancel()
         task = nil
-        placeholderTask?.cancel()
-        placeholderTask = nil
+        secondaryTask?.cancel()
+        secondaryTask = nil
         pendingSignature = nil
     }
 
@@ -378,6 +448,8 @@ public final class NextImageViewImpl: UIImageView {
         mainImageLoaded = false
         lastLayoutSize = .zero
         source = nil
+        placeholderSource = nil
+        defaultSource = nil
         propsDirty = false
     }
 
@@ -387,13 +459,38 @@ public final class NextImageViewImpl: UIImageView {
         commitProps()
     }
 
-    private static func cacheTypeName(_ cacheType: CacheType) -> String {
+    private static func cacheTypeName(
+        _ cacheType: CacheType,
+        request: NextImageRequest,
+        originalCacheType: CacheType
+    ) -> String {
         switch cacheType {
         case .memory: return "memory"
         case .disk: return "disk"
-        case .none: return "network"
+        case .none:
+            // `.none` covers three cases: a real download, a processed variant
+            // rebuilt from the cached original, and a local file or data uri.
+            if request.cache == "reload" { return "network" }
+            if request.isLocal { return "disk" }
+            switch originalCacheType {
+            case .memory: return "memory"
+            case .disk: return "disk"
+            default: return "network"
+            }
         @unknown default: return "unknown"
         }
+    }
+
+    /// Kingfisher's descriptions dump the whole `NSHTTPURLResponse`; the
+    /// Android side reports "HTTP 404", so this does the same.
+    private static func errorMessage(for error: KingfisherError) -> String {
+        if let status = error.httpStatusCodeOrNil {
+            return "HTTP \(status) \(HTTPURLResponse.localizedString(forStatusCode: status))"
+        }
+        if error.isCacheMiss {
+            return "Image is not in the cache."
+        }
+        return error.localizedDescription
     }
 
     private static func errorCode(for error: KingfisherError) -> String {
@@ -416,8 +513,13 @@ extension KingfisherError {
         if case let .cacheError(reason) = self {
             if case .imageNotExisting = reason { return true }
         }
+        return false
+    }
+
+    /// Kingfisher's way of saying a newer `setImage` call took over the view.
+    var isSuperseded: Bool {
         if case let .imageSettingError(reason) = self {
-            if case .notCurrentSourceTask = reason { return false }
+            if case .notCurrentSourceTask = reason { return true }
         }
         return false
     }

@@ -23,13 +23,29 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     window = UIWindow(frame: UIScreen.main.bounds)
 
+    // `SIMCTL_CHILD_NEXTIMAGE_TAB=cache xcrun simctl launch ...` starts on a tab.
+    var initialProperties: [AnyHashable: Any] = [:]
+    if let tab = ProcessInfo.processInfo.environment["NEXTIMAGE_TAB"] {
+      initialProperties["initialTab"] = tab
+    }
+
     factory.startReactNative(
       withModuleName: "NextImageExample",
       in: window,
+      initialProperties: initialProperties,
       launchOptions: launchOptions
     )
 
     return true
+  }
+
+  /// `nextimage://tab/<name>` from the Example README; RN's Linking module handles it.
+  func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    RCTLinkingManager.application(app, open: url, options: options)
   }
 }
 

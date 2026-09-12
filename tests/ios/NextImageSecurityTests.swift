@@ -32,6 +32,8 @@ struct NextImageSecurityTests {
         testConfigParsing()
         testCertificatePinParsing()
         testLoaderRebuildDetection()
+        testDataUriDecoding()
+        testLocalSchemesAreNotTrustedByName()
 
         if failures.isEmpty {
             print("ok - \(checks) checks passed")
@@ -391,6 +393,33 @@ struct NextImageSecurityTests {
         check(
             !NextImageConfig.requiresLoaderRebuild(base, hosts),
             "host list change does not rebuild the loader"
+        )
+    }
+
+    // MARK: Data uris and local schemes
+
+    private static func testDataUriDecoding() {
+        // "hi" in base64, with and without padding, and with the url-safe alphabet.
+        checkEqual(NextImageDataUri.decode("data:text/plain;base64,aGk="), Data("hi".utf8), "padded base64")
+        checkEqual(NextImageDataUri.decode("data:text/plain;base64,aGk"), Data("hi".utf8), "unpadded base64")
+        checkEqual(NextImageDataUri.decode("DATA:image/png;BASE64,aGk="), Data("hi".utf8), "case insensitive")
+        checkEqual(NextImageDataUri.decode("data:;base64,aG k=\n"), Data("hi".utf8), "whitespace ignored")
+        // 0xfb 0xff encodes to "+/8=" in standard base64 and "-_8=" url-safe.
+        checkEqual(NextImageDataUri.decode("data:;base64,-_8="), Data([0xfb, 0xff]), "url-safe alphabet")
+        checkEqual(NextImageDataUri.decode("data:text/plain,hi%20there"), Data("hi there".utf8), "percent decoded")
+        checkEqual(NextImageDataUri.decode("data:;base64,@@@@"), nil, "garbage payload")
+        checkEqual(NextImageDataUri.decode("https://example.com/a.jpg"), nil, "not a data uri")
+        checkEqual(NextImageDataUri.decode("data:image/png;base64"), nil, "no payload separator")
+    }
+
+    private static func testLocalSchemesAreNotTrustedByName() {
+        // Bundled assets are marked by JS, never recognised by scheme.
+        checkEqual(blockedCode("asset:/images/logo.png"), "SCHEME_NOT_ALLOWED", "asset scheme blocked")
+        checkEqual(blockedCode("ph://ABC-123"), "SCHEME_NOT_ALLOWED", "photos scheme blocked")
+        checkEqual(
+            NextImageConfig.immutableCacheDurationMinutes,
+            5_256_000,
+            "immutable lifetime matches the JS layer"
         )
     }
 }

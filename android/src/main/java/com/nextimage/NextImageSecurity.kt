@@ -26,9 +26,12 @@ object NextImageSecurity {
     "via",
   )
 
+  /**
+   * Schemes Coil loads without a network connection. `require()`d assets do
+   * not come through here: the JS layer marks them as bundled and the request
+   * factory resolves them directly.
+   */
   private val LOCAL_SCHEMES = setOf(
-    "asset",
-    "res",
     "android.resource",
     "content",
   )

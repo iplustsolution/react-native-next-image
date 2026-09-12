@@ -29,9 +29,11 @@ RCT_EXPORT_MODULE()
           reject:(RCTPromiseRejectBlock)reject
 {
   dispatch_async(dispatch_get_main_queue(), ^{
-    NSInteger accepted = [[NextImageEngine shared] prefetchWithUris:uris
-                                                          priority:priority ?: @"normal"];
-    resolve(@(accepted));
+    [[NextImageEngine shared] prefetchWithUris:uris
+                                      priority:priority ?: @"normal"
+                                    completion:^(NSInteger cached) {
+                                      resolve(@(cached));
+                                    }];
   });
 }
 

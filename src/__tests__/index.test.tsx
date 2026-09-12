@@ -6,7 +6,7 @@ import {
   it,
   jest,
 } from '@jest/globals';
-import { Dimensions, Text } from 'react-native';
+import { Dimensions, Image, StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestInstance } from 'react-test-renderer';
 
 const mockNativeModule = {
@@ -101,13 +101,14 @@ describe('rendering', () => {
       cache: 'immutable',
       cacheDuration: 60,
       cacheKey: '',
+      bundled: false,
     });
     expect(props.resizeMode).toBe('contain');
     expect(props.transition).toBe('fade');
     // Out-of-range numbers are clamped rather than passed to native.
     expect(props.transitionDuration).toBe(10000);
     expect(props.blurRadius).toBe(100);
-    expect(props.borderRadius).toBe(0);
+    expect(props.cornerRadius).toBe(0);
     expect(props.retryCount).toBe(10);
     expect(props.downsample).toBe(true);
   });
@@ -249,6 +250,145 @@ describe('rendering', () => {
     const props = findNative(tree!.root)!.props as Record<string, unknown>;
     expect(props.onNextImageLoad).toBe(onLoad);
     expect(props.onNextImageProgress).toBe(onProgress);
+  });
+});
+
+describe('bundled assets and local images', () => {
+  const resolveAssetSource = (asset: number) => ({
+    uri: `http://localhost:8081/assets/src/logo.png?asset=${asset}`,
+    width: 1,
+    height: 1,
+    scale: 1,
+  });
+
+  beforeEach(() => {
+    jest
+      .spyOn(Image, 'resolveAssetSource')
+      .mockImplementation(resolveAssetSource as never);
+  });
+
+  it('marks a require()d source as bundled and skips the url policy', () => {
+    const onError = jest.fn();
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(<NextImage source={42} onError={onError} />);
+    });
+
+    const props = findNative(tree!.root)!.props as Record<string, unknown>;
+    // Metro serves assets over plain http from a loopback host, both of
+    // which the policy would refuse for a remote source.
+    expect(props.source).toMatchObject({
+      uri: 'http://localhost:8081/assets/src/logo.png?asset=42',
+      bundled: true,
+      cache: 'immutable',
+    });
+    expect(onError).not.toHaveBeenCalled();
+    // A local asset has nothing to defer.
+    expect(props.deferNetwork).toBe(false);
+  });
+
+  it('sends placeholder and defaultSource as sources', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri: 'https://example.com/a.jpg' }}
+          placeholder={7}
+          defaultSource="https://example.com/fallback.jpg"
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    const props = findNative(tree!.root)!.props as Record<string, unknown>;
+    expect(props.placeholder).toMatchObject({
+      uri: 'http://localhost:8081/assets/src/logo.png?asset=7',
+      bundled: true,
+    });
+    expect(props.defaultSource).toMatchObject({
+      uri: 'https://example.com/fallback.jpg',
+      bundled: false,
+    });
+  });
+
+  it('drops a placeholder the policy refuses instead of sending it', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri: 'https://example.com/a.jpg' }}
+          placeholder="http://example.com/placeholder.jpg"
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    const props = findNative(tree!.root)!.props as Record<string, unknown>;
+    expect(props.placeholder).toBeNull();
+  });
+
+  it('preloads bundled assets alongside remote sources', () => {
+    NextImage.preload([{ uri: 'https://example.com/a.jpg' }, 3]);
+
+    const sources = mockNativeModule.preload.mock.calls[0]?.[0] as {
+      uri: string;
+      bundled: boolean;
+    }[];
+    expect(sources).toHaveLength(2);
+    expect(sources[1]).toMatchObject({ bundled: true });
+  });
+});
+
+describe('rounding', () => {
+  function containerStyle(tree: ReturnType<typeof create>) {
+    const native = findNative(tree.root)!;
+    return StyleSheet.flatten(native.parent!.props.style as never) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  it('rounds the container to the borderRadius prop', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri: 'https://example.com/a.jpg' }}
+          borderRadius={12}
+          style={{ backgroundColor: 'red' }}
+        />
+      );
+    });
+    expect(containerStyle(tree!).borderRadius).toBe(12);
+    expect(
+      (findNative(tree!.root)!.props as Record<string, unknown>).cornerRadius
+    ).toBe(12);
+  });
+
+  it('reads the radius from the style like a plain Image', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri: 'https://example.com/a.jpg' }}
+          style={{ borderRadius: 8 }}
+        />
+      );
+    });
+    expect(
+      (findNative(tree!.root)!.props as Record<string, unknown>).cornerRadius
+    ).toBe(8);
+  });
+
+  it('makes the container a circle for isCircle', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage source={{ uri: 'https://example.com/a.jpg' }} isCircle />
+      );
+    });
+    // Large enough that the platform scales it down to half the shorter side.
+    expect(containerStyle(tree!).borderRadius).toBe(9999);
   });
 });
 

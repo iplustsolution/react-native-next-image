@@ -74,6 +74,11 @@ public final class NextImageEngine: NSObject {
     /// Prefetchers are held until they finish so they are not deallocated mid-flight.
     private var activePrefetchers: [UUID: ImagePrefetcher] = [:]
     private let prefetcherLock = NSLock()
+    /// Processor identifiers used per cache key. Kingfisher stores a processed
+    /// variant under `key@identifier` and cannot enumerate them, so they are
+    /// remembered here for `removeFromCache`.
+    private var processedVariants: [String: Set<String>] = [:]
+    private let variantLock = NSLock()
 
     override public init() {
         super.init()
@@ -106,6 +111,21 @@ public final class NextImageEngine: NSObject {
         }
     }
 
+    /// Records that `identifier` was used to render `key`, so the variant can
+    /// be dropped together with the original.
+    func rememberProcessor(_ identifier: String, forKey key: String) {
+        guard !identifier.isEmpty else { return }
+        variantLock.lock()
+        processedVariants[key, default: []].insert(identifier)
+        variantLock.unlock()
+    }
+
+    private func takeVariants(forKey key: String) -> Set<String> {
+        variantLock.lock()
+        defer { variantLock.unlock() }
+        return processedVariants.removeValue(forKey: key) ?? []
+    }
+
     @objc public func clearMemoryCache() {
         ImageCache.default.clearMemoryCache()
     }
@@ -113,23 +133,46 @@ public final class NextImageEngine: NSObject {
     @objc(clearDiskCacheWithCompletion:)
     public func clearDiskCache(completion: @escaping @Sendable () -> Void) {
         ImageCache.default.clearDiskCache(completion: completion)
+        // Memory is not cleared here, but a variant list only matters for a
+        // targeted removal, and anything left in memory expires on its own.
+    }
+
+    /// The key a view would look up for this uri, matching `NextImageRequest`.
+    static func cacheKey(uri: String, cacheKey: String) -> String {
+        cacheKey.isEmpty ? NextImageRequest.defaultCacheKey(for: uri) : cacheKey
     }
 
     @objc(isCachedWithUri:cacheKey:)
     public func isCached(uri: String, cacheKey: String) -> Bool {
-        ImageCache.default.isCached(forKey: cacheKey.isEmpty ? uri : cacheKey)
+        ImageCache.default.isCached(forKey: NextImageEngine.cacheKey(uri: uri, cacheKey: cacheKey))
     }
 
+    /// Removes the original bytes and every processed variant rendered from them.
     @objc(removeFromCacheWithUri:cacheKey:completion:)
     public func removeFromCache(
         uri: String,
         cacheKey: String,
         completion: @escaping @Sendable (Bool) -> Void
     ) {
-        let key = cacheKey.isEmpty ? uri : cacheKey
-        let existed = ImageCache.default.isCached(forKey: key)
-        ImageCache.default.removeImage(forKey: key) {
-            completion(existed)
+        let key = NextImageEngine.cacheKey(uri: uri, cacheKey: cacheKey)
+        let cache = ImageCache.default
+        let variants = takeVariants(forKey: key)
+
+        var existed = cache.isCached(forKey: key)
+        let group = DispatchGroup()
+        for identifier in variants {
+            if cache.isCached(forKey: key, processorIdentifier: identifier) {
+                existed = true
+            }
+            group.enter()
+            cache.removeImage(forKey: key, processorIdentifier: identifier) { group.leave() }
+        }
+        group.enter()
+        cache.removeImage(forKey: key) { group.leave() }
+
+        let removed = existed
+        group.notify(queue: .global(qos: .utility)) {
+            completion(removed)
         }
     }
 
@@ -150,9 +193,13 @@ public final class NextImageEngine: NSObject {
     }
 
     /// Warms the cache from a list of urls. Blocked sources are skipped, and
-    /// the accepted count is returned so JS can report it.
-    @objc(prefetchWithUris:priority:)
-    public func prefetch(uris: [String], priority: String) -> Int {
+    /// `completion` receives the number of images on disk once the batch is done.
+    @objc(prefetchWithUris:priority:completion:)
+    public func prefetch(
+        uris: [String],
+        priority: String,
+        completion: @escaping @Sendable (Int) -> Void
+    ) {
         let config = NextImageConfigStore.shared.current
         var urls: [URL] = []
 
@@ -165,18 +212,27 @@ public final class NextImageEngine: NSObject {
             urls.append(url)
         }
 
-        guard !urls.isEmpty else { return 0 }
+        guard !urls.isEmpty else {
+            completion(0)
+            return
+        }
 
+        // Same lifetime a view gives a plain `{ uri }` source, so a prefetched
+        // entry is not treated as expired before the view's would be.
         let options: KingfisherOptionsInfo = [
             .downloadPriority(NextImageEngine.downloadPriority(for: priority)),
-            .diskCacheExpiration(.days(7)),
-            .cacheOriginalImage,
+            .diskCacheExpiration(.never),
+            .diskCacheAccessExtendingExpiration(.none),
+            .redirectHandler(NextImageRedirectHandler.shared),
             .backgroundDecode,
         ]
-        run { completion in
-            ImagePrefetcher(urls: urls, options: options, completionHandler: completion)
+        run { done in
+            ImagePrefetcher(urls: urls, options: options, completionHandler: { skipped, _, completed in
+                // Skipped means "already cached", which is just as good.
+                completion(skipped.count + completed.count)
+                done()
+            })
         }
-        return urls.count
     }
 
     /// Warms the cache from full source objects, including headers and TTL, so
@@ -187,25 +243,24 @@ public final class NextImageEngine: NSObject {
 
         for source in sources {
             let request = NextImageRequest(source: source, config: config)
-            guard let resource = request.resource else { continue }
-            var options = request.options(deferNetwork: false, targetSize: nil, processors: [])
-            options.append(.cacheOriginalImage)
-            options.append(.backgroundDecode)
-            run { completion in
+            guard let kingfisherSource = request.kingfisherSource else { continue }
+            let options = request.options(deferNetwork: false, targetSize: nil, processors: [])
+            run { done in
                 ImagePrefetcher(
-                    resources: [resource],
+                    sources: [kingfisherSource],
                     options: options,
-                    completionHandler: completion
+                    completionHandler: { _, _, _ in done() }
                 )
             }
         }
     }
 
     /// Keeps the prefetcher alive for the duration of the work and releases it
-    /// when Kingfisher reports the batch finished.
-    private func run(_ make: (@escaping PrefetcherCompletionHandler) -> ImagePrefetcher) {
+    /// when Kingfisher reports the batch finished. `make` receives the
+    /// callback to invoke from whichever completion handler shape it uses.
+    private func run(_ make: (@escaping @Sendable () -> Void) -> ImagePrefetcher) {
         let token = UUID()
-        let prefetcher = make { [weak self] _, _, _ in
+        let prefetcher = make { [weak self] in
             guard let self else { return }
             self.prefetcherLock.lock()
             self.activePrefetchers.removeValue(forKey: token)

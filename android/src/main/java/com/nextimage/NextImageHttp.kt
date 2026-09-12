@@ -2,10 +2,13 @@ package com.nextimage
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import okhttp3.CacheControl
 import okhttp3.Interceptor
 import okhttp3.MediaType
+import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
 import okio.BufferedSource
 import okio.ForwardingSource
@@ -15,14 +18,52 @@ import okio.buffer
 /** Request header carrying the per-request cache lifetime, in seconds. */
 internal const val TTL_HEADER = "X-NextImage-Ttl"
 
+/** Marks the synthetic 504 that answers a request the cache could not satisfy. */
+internal const val UNSATISFIABLE_HEADER = "X-NextImage-Unsatisfiable"
+
 /** A TTL at or above this many seconds is written as `immutable`. */
 private const val IMMUTABLE_TTL_SECONDS = 60L * 60 * 24 * 365
+
+/**
+ * Keeps a cache-only request off the network.
+ *
+ * When a request's network policy is disabled, or the device is offline, Coil
+ * does not refuse to connect: it adds `Cache-Control: only-if-cached` and
+ * expects an OkHttp cache to answer 504. NextImage has no OkHttp cache, Coil's
+ * own disk cache already missed, so without this interceptor the request would
+ * go out anyway and `prefetchThreshold` and `cache: 'cacheOnly'` would mean
+ * nothing. This answers the 504 locally, tagged so the view can tell a cache
+ * miss apart from a real gateway error.
+ */
+internal class NextImageOnlyIfCachedInterceptor : Interceptor {
+  override fun intercept(chain: Interceptor.Chain): Response {
+    val request = chain.request()
+    if (!CacheControl.parse(request.headers).onlyIfCached) {
+      return chain.proceed(request)
+    }
+    val now = System.currentTimeMillis()
+    return Response.Builder()
+      .request(request)
+      .protocol(Protocol.HTTP_1_1)
+      .code(UNSATISFIABLE_STATUS)
+      .message("Unsatisfiable Request (only-if-cached)")
+      .header(UNSATISFIABLE_HEADER, "1")
+      .body(ByteArray(0).toResponseBody(null))
+      .sentRequestAtMillis(now)
+      .receivedResponseAtMillis(now)
+      .build()
+  }
+
+  companion object {
+    const val UNSATISFIABLE_STATUS = 504
+  }
+}
 
 /**
  * Makes the on-disk lifetime of an image NextImage's decision rather than the
  * server's.
  *
- * Coil's default cache strategy decides whether a stored response is still
+ * Coil's cache-control strategy decides whether a stored response is still
  * fresh by reading its cache headers. Many CDNs and app servers send
  * `no-store`, `no-cache` or a short `max-age`, which forces a download on
  * every render. This interceptor replaces those headers on the way in, so the

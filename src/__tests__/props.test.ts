@@ -110,6 +110,7 @@ describe('resolveSource', () => {
       cache: 'web',
       cacheDuration: 60,
       cacheKey: 'stable-key',
+      bundled: false,
     });
   });
 
