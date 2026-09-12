@@ -60,6 +60,9 @@ public final class NextImageViewImpl: UIImageView {
     /// task asynchronously, by which time a newer task may own `task` and
     /// `pendingSignature`; the stale completion must not touch them.
     private var loadToken = 0
+    /// The source `onLoadStart` was last reported for. A deferred cache probe
+    /// and the network load that follows it are one load as far as JS knows.
+    private var startedSignature: String?
 
     public override init(frame: CGRect) {
         super.init(frame: frame)
@@ -244,7 +247,10 @@ public final class NextImageViewImpl: UIImageView {
             ? CacheType.none
             : ImageCache.default.imageCachedType(forKey: request.cacheKey)
 
-        onNextImageLoadStart?([:])
+        if startedSignature != signature {
+            startedSignature = signature
+            onNextImageLoadStart?([:])
+        }
 
         task = kf.setImage(
             with: kingfisherSource,
@@ -263,6 +269,7 @@ public final class NextImageViewImpl: UIImageView {
 
                 switch result {
                 case let .success(value):
+                    self.startedSignature = nil
                     self.loadedSignature = signature
                     self.mainImageLoaded = true
                     self.secondaryTask?.cancel()
@@ -292,6 +299,7 @@ public final class NextImageViewImpl: UIImageView {
                     // Kingfisher has already exhausted `retryCount` attempts.
                     let status = error.httpStatusCode
                     // The previous image, if any, is not what the caller asked for any more.
+                    self.startedSignature = nil
                     self.loadedSignature = nil
                     self.mainImageLoaded = false
                     self.showDefaultSource()
@@ -444,6 +452,7 @@ public final class NextImageViewImpl: UIImageView {
         cancelRequests()
         kf.cancelDownloadTask()
         image = nil
+        startedSignature = nil
         loadedSignature = nil
         mainImageLoaded = false
         lastLayoutSize = .zero

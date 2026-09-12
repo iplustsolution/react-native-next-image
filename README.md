@@ -371,7 +371,8 @@ reports `'disk'`. `elapsed` is milliseconds from the start of the attempt that
 succeeded to display. In `onProgress`, `total` is `0` when the server sends no
 `Content-Length`.
 
-`onLoadStart` fires once per load, not once per native retry. `onLoad` fires
+`onLoadStart` fires once per source: not once per native retry, and not again
+when an image that waited for `prefetchThreshold` starts its download. `onLoad` fires
 only for `source`; a `defaultSource` shown after a failure is reported through
 `onError` alone.
 

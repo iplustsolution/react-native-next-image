@@ -6,6 +6,7 @@ import android.graphics.PorterDuff
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
+import android.view.View
 import android.view.animation.Animation
 import android.view.animation.OvershootInterpolator
 import android.view.animation.ScaleAnimation
@@ -25,7 +26,7 @@ import coil3.request.transformations
 import coil3.size.Precision
 import coil3.size.Scale
 import coil3.size.Size
-import coil3.size.ViewSizeResolver
+import coil3.size.SizeResolver
 import coil3.target.ImageViewTarget
 import coil3.transform.CircleCropTransformation
 import coil3.transform.RoundedCornersTransformation
@@ -37,6 +38,8 @@ import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.PixelUtil
 import com.facebook.react.uimanager.UIManagerHelper
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
@@ -79,6 +82,8 @@ class NextImageView(context: ReactContext) : ImageView(context) {
   private var placeholderDisposable: Disposable? = null
   private var loadedSignature: String? = null
   private var pendingSignature: String? = null
+  /** The source `onLoadStart` was last reported for; a deferred cache probe and the network load that follows it are one load. */
+  private var startedSignature: String? = null
   private var attempt = 0
   private var requestStartedAtMs = 0L
   private var mainImageLoaded = false
@@ -100,6 +105,45 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     override fun onError(error: Image?) {
       if (error != null) super.onError(error)
     }
+  }
+
+  /**
+   * Coil's own `ViewSizeResolver` reads a WRAP_CONTENT layout parameter, which
+   * React Native gives every child it mounts, as "decode the original". That
+   * would decode a 4000x3000 photo in full for a thumbnail. This resolver uses
+   * the laid-out size instead, waiting for the first layout if needed.
+   */
+  private val sizeResolver = object : SizeResolver {
+    override suspend fun size(): Size {
+      laidOutSize()?.let { return it }
+      return suspendCancellableCoroutine { continuation ->
+        val listener = object : View.OnLayoutChangeListener {
+          override fun onLayoutChange(
+            v: View,
+            left: Int,
+            top: Int,
+            right: Int,
+            bottom: Int,
+            oldLeft: Int,
+            oldTop: Int,
+            oldRight: Int,
+            oldBottom: Int,
+          ) {
+            val size = laidOutSize() ?: return
+            removeOnLayoutChangeListener(this)
+            if (continuation.isActive) continuation.resume(size)
+          }
+        }
+        addOnLayoutChangeListener(listener)
+        continuation.invokeOnCancellation { removeOnLayoutChangeListener(listener) }
+      }
+    }
+  }
+
+  private fun laidOutSize(): Size? {
+    val w = width - paddingLeft - paddingRight
+    val h = height - paddingTop - paddingBottom
+    return if (w > 0 && h > 0) Size(w, h) else null
   }
 
   init {
@@ -254,10 +298,13 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     builder.target(target)
     builder.scale(scaleFor(resizeModeValue))
 
-    if (!downsampleEnabled) {
+    if (downsampleEnabled) {
+      builder.size(sizeResolver)
+    } else {
       builder.size(Size.ORIGINAL)
-      builder.precision(Precision.INEXACT)
     }
+    // Decode to at least the view's size; never rescale the bitmap to hit it exactly.
+    builder.precision(Precision.INEXACT)
 
     val transformations = mutableListOf<Transformation>()
     if (circleCrop) {
@@ -282,19 +329,27 @@ class NextImageView(context: ReactContext) : ImageView(context) {
         // into the window; that is not a new load as far as JS is concerned.
         if (!isShowing(signature)) {
           registerProgress(spec)
-          // Once per load, not once per retry, matching iOS.
-          if (attempt == 0) {
+          // Once per source: not per retry, and not again when a deferred
+          // cache probe is followed by the real request.
+          if (startedSignature != signature) {
+            startedSignature = signature
             emitEvent(NextImageEvent.LOAD_START, null)
           }
         }
       },
       onCancel = {
-        unregisterProgress()
+        // Cancellation is reported asynchronously: by now a newer request may
+        // own the progress listener, so only the current one lets go of it.
+        if (pendingSignature == pendingKey) {
+          unregisterProgress()
+        }
         handleCancel(spec, signature, pendingKey, loader)
       },
       onError = { _, result ->
-        unregisterProgress()
-        handleError(spec, signature, pendingKey, result.throwable)
+        if (pendingSignature == pendingKey) {
+          unregisterProgress()
+          handleError(spec, signature, pendingKey, result.throwable)
+        }
       },
       onSuccess = { _, result ->
         unregisterProgress()
@@ -311,6 +366,7 @@ class NextImageView(context: ReactContext) : ImageView(context) {
   private fun handleSuccess(signature: String, result: SuccessResult) {
     val duplicate = isShowing(signature)
     pendingSignature = null
+    startedSignature = null
     loadedSignature = signature
     mainImageLoaded = true
     attempt = 0
@@ -388,6 +444,7 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     }
 
     // The previous image, if any, is not what the caller asked for any more.
+    startedSignature = null
     loadedSignature = null
     mainImageLoaded = false
     showDefaultSource()
@@ -465,7 +522,7 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     val builder = ImageRequest.Builder(context)
     NextImageRequestFactory.apply(context, builder, spec, deferNetwork = false)
     return builder
-      .size(ViewSizeResolver(this))
+      .size(sizeResolver)
       .scale(scaleFor(resizeModeValue))
       .precision(Precision.INEXACT)
       .target(onSuccess = onSuccess)
@@ -589,6 +646,7 @@ class NextImageView(context: ReactContext) : ImageView(context) {
   fun cleanup() {
     clearRequest()
     setImageDrawable(null)
+    startedSignature = null
     loadedSignature = null
     mainImageLoaded = false
     source = null
