@@ -8,7 +8,12 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
-use_modular_headers!
+# Kingfisher ships `BUILD_LIBRARY_FOR_DISTRIBUTION = YES`, and combining that
+# with `use_modular_headers!` makes Swift look for an underlying Objective-C
+# module that does not exist. Apps that need modular headers globally can keep
+# them and opt Kingfisher out instead:
+#   use_modular_headers!
+#   pod 'Kingfisher', :modular_headers => false
 
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
@@ -32,5 +37,17 @@ target 'NextImageExample' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Kingfisher declares iOS 13 and its resource bundle target inherits that,
+    # which Xcode 16 and newer reject. React Native's own post install step
+    # only raises pod targets, so resource bundles need this pass too.
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f
+        if current > 0 && current < min_ios_version_supported.to_f
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+        end
+      end
+    end
   end
 end

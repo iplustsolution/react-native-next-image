@@ -31,6 +31,10 @@ apply plugin: "kotlin-android"
 
 apply plugin: "com.facebook.react"
 
+def coilVersion = "3.0.4"
+def okhttpVersion = "4.12.0"
+def coroutinesVersion = "1.8.1"
+
 android {
   namespace "com.nextimage"
 
@@ -44,11 +48,31 @@ android {
     sourceCompatibility JavaVersion.VERSION_17
     targetCompatibility JavaVersion.VERSION_17
   }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+
+  testOptions {
+    unitTests {
+      includeAndroidResources = false
+      returnDefaultValues = true
+    }
+  }
 }
 
 dependencies {
   implementation "com.facebook.react:react-android"
-  implementation "io.coil-kt.coil3:coil:3.0.4"
-  implementation "io.coil-kt.coil3:coil-network-core:3.0.4"
-  implementation "io.coil-kt.coil3:coil-network-okhttp:3.0.4"
+
+  implementation "io.coil-kt.coil3:coil:$coilVersion"
+  implementation "io.coil-kt.coil3:coil-network-core:$coilVersion"
+  implementation "io.coil-kt.coil3:coil-network-okhttp:$coilVersion"
+
+  // Declared explicitly: the cache-control and progress interceptors compile
+  // against OkHttp and Okio rather than relying on Coil's transitive graph.
+  implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
+  implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
+
+  testImplementation "junit:junit:4.13.2"
+  testImplementation "com.squareup.okhttp3:mockwebserver:$okhttpVersion"
 }

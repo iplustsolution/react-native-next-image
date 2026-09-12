@@ -1,5 +1,9 @@
+// The legacy (pre-Fabric) view manager. On the New Architecture the view is
+// provided by NextImageViewComponentView instead, so this file compiles to
+// nothing there and the two can never both register "NextImageView".
+#ifndef RCT_NEW_ARCH_ENABLED
+
 #import <React/RCTViewManager.h>
-#import <React/RCTUIManager.h>
 
 #if __has_include(<NextImage/NextImage-Swift.h>)
 #import <NextImage/NextImage-Swift.h>
@@ -16,23 +20,25 @@ RCT_EXPORT_MODULE(NextImageView)
 
 - (UIView *)view
 {
-  return [[NextImageViewImpl alloc] init];
+  return [[NextImageViewImpl alloc] initWithFrame:CGRectZero];
 }
 
 RCT_EXPORT_VIEW_PROPERTY(source, NSDictionary)
-RCT_EXPORT_VIEW_PROPERTY(defaultSource, NSString)
+RCT_REMAP_VIEW_PROPERTY(defaultSource, defaultSourceUri, NSString)
+RCT_REMAP_VIEW_PROPERTY(placeholder, placeholderUri, NSString)
 RCT_EXPORT_VIEW_PROPERTY(resizeMode, NSString)
-RCT_EXPORT_VIEW_PROPERTY(blurRadius, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(transition, NSString)
-RCT_EXPORT_VIEW_PROPERTY(transitionDuration, CGFloat)
-RCT_EXPORT_VIEW_PROPERTY(borderRadius, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(transitionDuration, double)
+RCT_REMAP_VIEW_PROPERTY(borderRadius, borderRadiusValue, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(isCircle, BOOL)
-RCT_EXPORT_VIEW_PROPERTY(grayscale, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(downsample, BOOL)
-RCT_EXPORT_VIEW_PROPERTY(placeholder, NSString)
-RCT_REMAP_VIEW_PROPERTY(tintColor, tintColorProp, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(grayscale, BOOL)
+RCT_REMAP_VIEW_PROPERTY(blurRadius, blurRadiusValue, CGFloat)
+RCT_REMAP_VIEW_PROPERTY(tintColor, tintColorValue, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(deferNetwork, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(retryCount, NSInteger)
+RCT_EXPORT_VIEW_PROPERTY(retryDelay, double)
 
-// Events
 RCT_EXPORT_VIEW_PROPERTY(onNextImageLoadStart, RCTBubblingEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onNextImageProgress, RCTBubblingEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onNextImageLoad, RCTBubblingEventBlock)
@@ -40,3 +46,5 @@ RCT_EXPORT_VIEW_PROPERTY(onNextImageError, RCTBubblingEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onNextImageLoadEnd, RCTBubblingEventBlock)
 
 @end
+
+#endif

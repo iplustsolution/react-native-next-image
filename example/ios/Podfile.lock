@@ -3,8 +3,10 @@ PODS:
   - hermes-engine (250829098.0.10):
     - hermes-engine/Pre-built (= 250829098.0.10)
   - hermes-engine/Pre-built (250829098.0.10)
-  - NextImage (0.0.4):
+  - Kingfisher (8.12.0)
+  - NextImage (0.0.5):
     - hermes-engine
+    - Kingfisher (~> 8.0)
     - RCTRequired
     - RCTTypeSafety
     - React-Core
@@ -24,7 +26,6 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
-    - SDWebImage (~> 5.19)
     - Yoga
   - RCTDeprecation (0.85.0)
   - RCTRequired (0.85.0)
@@ -1770,9 +1771,6 @@ PODS:
     - React-utils (= 0.85.0)
     - ReactNativeDependencies
   - ReactNativeDependencies (0.85.0)
-  - SDWebImage (5.21.7):
-    - SDWebImage/Core (= 5.21.7)
-  - SDWebImage/Core (5.21.7)
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -1854,7 +1852,7 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
-    - SDWebImage
+    - Kingfisher
 
 EXTERNAL SOURCES:
   FBLazyVector:
@@ -2010,7 +2008,8 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   FBLazyVector: c00c20551d40126351a6783c47ce75f5b374851b
   hermes-engine: 80838c1b6acefd7a0d4a40dd4fdc9b945d643e95
-  NextImage: eefbc9832f8dbcaed3eabdf9ece5afb2e8a0523b
+  Kingfisher: 64e06c7d1a9851ecff9d1b14f92ad01141263dae
+  NextImage: 78735d99ffb3af260da49e94720554e3cfafc2a2
   RCTDeprecation: 3bb167081b134461cfeb875ff7ae1945f8635257
   RCTRequired: 74839f55d5058a133a0bc4569b0afec750957f64
   RCTSwiftUI: 87a316382f3eab4dd13d2a0d0fd2adcce917361a
@@ -2081,9 +2080,8 @@ SPEC CHECKSUMS:
   ReactCodegen: b3184a229afd01e7f8058dd81b805b843caa2bf9
   ReactCommon: fe2a3af8975e63efa60f95fca8c34dc85deee360
   ReactNativeDependencies: faa4e8462f2bafa548794376bd869c7ddb0c5c3b
-  SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   Yoga: e83c3121d079541e69f3c5c623faaaf933fb5812
 
-PODFILE CHECKSUM: e8d29d0b85164572126abc23e73cc729f725e6df
+PODFILE CHECKSUM: ba0be2aabcf459cdcdd31a3283fc75641fd7d8c5
 
-COCOAPODS: 1.15.2
+COCOAPODS: 1.16.2

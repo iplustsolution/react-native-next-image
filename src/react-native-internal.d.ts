@@ -24,4 +24,6 @@ declare module 'react-native/Libraries/Types/CodegenTypes' {
   ) => void;
   export type WithDefault<T, _V extends T> = T;
   export type Booleanish = boolean;
+  export type UnsafeObject = object;
+  export type UnsafeMixed = unknown;
 }

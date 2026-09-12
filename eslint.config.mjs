@@ -24,6 +24,18 @@ export default defineConfig([
     },
   },
   {
-    ignores: ['node_modules/', 'lib/'],
+    // Build artifacts, including the HTML test reports Gradle writes.
+    ignores: [
+      // Nested too: the example workspace has its own node_modules, and
+      // walking it makes a full lint take minutes.
+      '**/node_modules/',
+      'lib/',
+      'coverage/',
+      '.turbo/',
+      // Generated or vendored: Gradle reports, Xcode output, CocoaPods.
+      '**/build/',
+      'example/ios/Pods/',
+      'example/dist/',
+    ],
   },
 ]);

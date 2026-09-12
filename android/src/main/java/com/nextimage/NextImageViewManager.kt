@@ -1,85 +1,133 @@
 package com.nextimage
 
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.module.annotations.ReactModule
 import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
+import com.facebook.react.uimanager.ViewManagerDelegate
 import com.facebook.react.uimanager.annotations.ReactProp
-import com.facebook.react.common.MapBuilder
+import com.facebook.react.viewmanagers.NextImageViewManagerDelegate
+import com.facebook.react.viewmanagers.NextImageViewManagerInterface
 
-class NextImageViewManager : SimpleViewManager<NextImageView>() {
-    override fun getName(): String = "NextImageView"
+/**
+ * Implements the codegen interface so props flow through the generated
+ * delegate on the New Architecture, and keeps the `@ReactProp` annotations so
+ * the reflection based path of the old architecture works too.
+ */
+@ReactModule(name = NextImageViewManager.NAME)
+class NextImageViewManager :
+  SimpleViewManager<NextImageView>(),
+  NextImageViewManagerInterface<NextImageView> {
 
-    override fun createViewInstance(reactContext: ThemedReactContext): NextImageView {
-        return NextImageView(reactContext)
+  private val managerDelegate: ViewManagerDelegate<NextImageView> =
+    NextImageViewManagerDelegate(this)
+
+  override fun getName(): String = NAME
+
+  override fun getDelegate(): ViewManagerDelegate<NextImageView> = managerDelegate
+
+  override fun createViewInstance(reactContext: ThemedReactContext): NextImageView =
+    NextImageView(reactContext)
+
+  /** Every prop for this transaction has been applied: load at most once. */
+  override fun onAfterUpdateTransaction(view: NextImageView) {
+    super.onAfterUpdateTransaction(view)
+    view.commitProps()
+  }
+
+  override fun onDropViewInstance(view: NextImageView) {
+    view.cleanup()
+    super.onDropViewInstance(view)
+  }
+
+  @ReactProp(name = "source")
+  override fun setSource(view: NextImageView, value: ReadableMap?) {
+    view.setSource(value)
+  }
+
+  @ReactProp(name = "defaultSource")
+  override fun setDefaultSource(view: NextImageView, value: String?) {
+    view.setDefaultSource(value)
+  }
+
+  @ReactProp(name = "placeholder")
+  override fun setPlaceholder(view: NextImageView, value: String?) {
+    view.setPlaceholder(value)
+  }
+
+  @ReactProp(name = "resizeMode")
+  override fun setResizeMode(view: NextImageView, value: String?) {
+    view.setResizeMode(value)
+  }
+
+  @ReactProp(name = "tintColor", customType = "Color")
+  override fun setTintColor(view: NextImageView, value: Int?) {
+    view.setTintColorValue(value)
+  }
+
+  @ReactProp(name = "blurRadius")
+  override fun setBlurRadius(view: NextImageView, value: Int) {
+    view.setBlurRadius(value)
+  }
+
+  @ReactProp(name = "transition")
+  override fun setTransition(view: NextImageView, value: String?) {
+    view.setTransition(value)
+  }
+
+  @ReactProp(name = "transitionDuration", defaultInt = 300)
+  override fun setTransitionDuration(view: NextImageView, value: Int) {
+    view.setTransitionDuration(value)
+  }
+
+  @ReactProp(name = "borderRadius")
+  override fun setBorderRadius(view: NextImageView, value: Float) {
+    view.setBorderRadiusPx(value)
+  }
+
+  @ReactProp(name = "isCircle")
+  override fun setIsCircle(view: NextImageView, value: Boolean) {
+    view.setCircleCrop(value)
+  }
+
+  @ReactProp(name = "downsample", defaultBoolean = true)
+  override fun setDownsample(view: NextImageView, value: Boolean) {
+    view.setDownsample(value)
+  }
+
+  @ReactProp(name = "grayscale")
+  override fun setGrayscale(view: NextImageView, value: Boolean) {
+    view.setGrayscale(value)
+  }
+
+  @ReactProp(name = "deferNetwork")
+  override fun setDeferNetwork(view: NextImageView, value: Boolean) {
+    view.setDeferNetwork(value)
+  }
+
+  @ReactProp(name = "retryCount", defaultInt = 2)
+  override fun setRetryCount(view: NextImageView, value: Int) {
+    view.setRetryCount(value)
+  }
+
+  @ReactProp(name = "retryDelay", defaultInt = 1000)
+  override fun setRetryDelay(view: NextImageView, value: Int) {
+    view.setRetryDelay(value)
+  }
+
+  override fun getExportedCustomBubblingEventTypeConstants(): MutableMap<String, Any> {
+    val constants = mutableMapOf<String, Any>()
+    for (eventName in NextImageEvent.ALL) {
+      constants[eventName] = mapOf(
+        "phasedRegistrationNames" to mapOf(
+          "bubbled" to NextImageEvent.propNameFor(eventName)
+        )
+      )
     }
+    return constants
+  }
 
-    @ReactProp(name = "source")
-    fun setSource(view: NextImageView, source: ReadableMap?) {
-        view.setSource(source)
-    }
-
-    @ReactProp(name = "defaultSource")
-    fun setDefaultSource(view: NextImageView, defaultSource: String?) {
-        view.setDefaultSource(defaultSource)
-    }
-
-    @ReactProp(name = "resizeMode")
-    fun setResizeMode(view: NextImageView, resizeMode: String?) {
-        view.setResizeMode(resizeMode ?: "cover")
-    }
-
-    @ReactProp(name = "blurRadius")
-    fun setBlurRadius(view: NextImageView, blurRadius: Int) {
-        view.setBlurRadius(blurRadius)
-    }
-
-    @ReactProp(name = "transition")
-    fun setTransition(view: NextImageView, transition: String?) {
-        view.setTransition(transition ?: "none")
-    }
-
-    @ReactProp(name = "tintColor", customType = "Color")
-    fun setTintColor(view: NextImageView, tintColor: Int?) {
-        view.setTintColor(tintColor)
-    }
-
-    @ReactProp(name = "transitionDuration")
-    fun setTransitionDuration(view: NextImageView, duration: Int) {
-        view.setTransitionDuration(duration)
-    }
-
-    @ReactProp(name = "borderRadius")
-    fun setBorderRadiusProp(view: NextImageView, radius: Float) {
-        view.setNextImageBorderRadius(radius)
-    }
-
-    @ReactProp(name = "isCircle")
-    fun setIsCircle(view: NextImageView, isCircle: Boolean) {
-        view.setIsCircle(isCircle)
-    }
-
-    @ReactProp(name = "downsample")
-    fun setDownsample(view: NextImageView, downsample: Boolean) {
-        view.setDownsample(downsample)
-    }
-
-    @ReactProp(name = "grayscale")
-    fun setGrayscale(view: NextImageView, grayscale: Boolean) {
-        view.setGrayscale(grayscale)
-    }
-
-    @ReactProp(name = "placeholder")
-    fun setPlaceholder(view: NextImageView, placeholder: String?) {
-        view.setPlaceholder(placeholder)
-    }
-
-    override fun getExportedCustomBubblingEventTypeConstants(): Map<String, Any> {
-        return MapBuilder.builder<String, Any>()
-            .put("onNextImageLoadStart", MapBuilder.of("phasedRegistrationNames", MapBuilder.of("bubbled", "onNextImageLoadStart")))
-            .put("onNextImageProgress", MapBuilder.of("phasedRegistrationNames", MapBuilder.of("bubbled", "onNextImageProgress")))
-            .put("onNextImageLoad", MapBuilder.of("phasedRegistrationNames", MapBuilder.of("bubbled", "onNextImageLoad")))
-            .put("onNextImageError", MapBuilder.of("phasedRegistrationNames", MapBuilder.of("bubbled", "onNextImageError")))
-            .put("onNextImageLoadEnd", MapBuilder.of("phasedRegistrationNames", MapBuilder.of("bubbled", "onNextImageLoadEnd")))
-            .build()
-    }
+  companion object {
+    const val NAME = "NextImageView"
+  }
 }

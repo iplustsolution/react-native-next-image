@@ -44,6 +44,60 @@ jobs:
       - name: Run unit tests
         run: yarn test --maxWorkers=2 --coverage
 
+  test-android-unit:
+    name: test (kotlin)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Install JDK
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Cache Gradle
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-unit-${{ hashFiles('android/build.gradle', 'example/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-unit-
+            ${{ runner.os }}-gradle-
+
+      # The security rules, the cache header rewriting and the progress
+      # reporting are plain JVM tests: no emulator, no device.
+      - name: Run Kotlin unit tests
+        working-directory: example/android
+        run: ./gradlew :react-native-next-image:testDebugUnitTest --console=plain
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kotlin-test-report
+          path: android/build/reports/tests/testDebugUnitTest
+
+  test-ios-unit:
+    name: test (swift)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      # The URL and header policy imports only Foundation, so it is compiled
+      # and asserted directly, without Xcode or a simulator.
+      - name: Run Swift security tests
+        run: ./scripts/test-ios-security.sh
+
   build-library:
     runs-on: ubuntu-latest
 
