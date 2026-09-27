@@ -312,6 +312,10 @@ pin must match, otherwise the connection is refused. A malformed pin is rejected
 by `configure` rather than quietly weakening TLS. RSA 2048/4096 and EC
 P-256/P-384 keys are supported on iOS.
 
+A pin's host is `cdn.example.com`, or `.example.com` / `*.example.com` for the
+domain and all of its subdomains. A bare `*` is rejected by `configure`. When
+several patterns match a host, a pin from any of them is accepted.
+
 ---
 
 ## API
@@ -337,9 +341,44 @@ P-256/P-384 keys are supported on iOS.
 | `retryDelay` | `number` | `1000` | Milliseconds before the first retry, doubling per attempt, never waiting more than 60s. |
 | `style` | `StyleProp<ImageStyle>` | – | Applied to the container; the image fills it. |
 | `children` | `ReactNode` | – | Rendered on top of the image, for badges and overlays. |
+| `nativeComponent` | `ComponentType<any>` | `NextImageNativeView` | Renders the native image view through your own wrapper, such as an animated component. See [Shared element transitions](#shared-element-transitions). |
+| `nativeViewProps` | `Record<string, unknown>` | – | Extra props for the native image view itself rather than the container. A `style` here is applied after the view's absolute fill; the props NextImage manages (`source`, events, rendering props) always win. |
 
 All `View` props (`testID`, accessibility props, `onLayout`) are supported and
 forwarded to the container.
+
+### Shared element transitions
+
+`NextImage` renders a container `View` with the native image view inside it.
+A Reanimated shared element transition moves only the view that carries the
+`sharedTransitionTag`, not its children, so the tag has to go on the native
+image view. Wrap it once with `createAnimatedComponent` and hand the wrapper
+over with `nativeComponent`:
+
+```tsx
+import Animated, { SharedTransition } from 'react-native-reanimated';
+import NextImage, { NextImageNativeView } from 'react-native-next-image';
+
+// Once, at module level. `NextImageNativeView` is null on web.
+const AnimatedNextImageView = NextImageNativeView
+  ? Animated.createAnimatedComponent(NextImageNativeView)
+  : undefined;
+
+<NextImage
+  source={{ uri }}
+  style={{ width: 120, height: 160 }}
+  nativeComponent={AnimatedNextImageView}
+  nativeViewProps={{
+    sharedTransitionTag: `photo-${id}`,
+    sharedTransitionStyle: SharedTransition.duration(300),
+  }}
+/>;
+```
+
+Reanimated flies a fresh copy of the tagged view with the same props. That
+copy renders from the memory cache in the frame it is mounted, without a
+placeholder, fade or custom transition, because a memory hit never animates
+in. Without the two props, `NextImage` renders exactly what it did before.
 
 ### `Source`
 
@@ -421,6 +460,7 @@ ignored there. `isNativeViewAvailable` tells you which mode you are in.
 
 ```tsx
 import {
+  NextImageNativeView,   // the raw native view, for `nativeComponent`; null on web
   isNativeViewAvailable, // false on web, where the platform image is used
   isNearViewport,        // the prefetchThreshold test, for your own lists
   setViewportPollInterval,
@@ -502,15 +542,55 @@ on the new loader, so nothing is lost, but the memory cache starts empty.
   | `borderRadius`, `isCircle` | re-decodes | free |
 
   A re-decode still comes from cache, so it costs CPU rather than a request.
-- **Downsampling** decodes at the view's size by default. On iOS the size is
-  bucketed to 32pt so a one-point layout change does not invalidate the image,
-  and only a view that grew re-decodes. `downsample={false}` decodes at full
+- **Downsampling** decodes at the view's size by default, large enough to
+  cover the view for `cover` and `stretch` and to fit it for `contain`. On iOS
+  the size is bucketed to 32pt so a one-point layout change does not invalidate
+  the image, and only a view that grew re-decodes. `downsample={false}` decodes at full
   size on both platforms.
 - **Clipped list rows** (`removeClippedSubviews`) keep their image and report
   no extra events when they come back on screen.
 - **Recycled views** cancel their in-flight request and release their image.
 
 ---
+
+## Release notes
+
+### 0.0.7
+
+**Added**
+
+- `nativeComponent` and `nativeViewProps`, and the `NextImageNativeView`
+  export, so an app can render the native view through its own wrapper, for
+  example to put a Reanimated `sharedTransitionTag` on the image itself. See
+  [Shared element transitions](#shared-element-transitions). Nothing changes
+  when they are not used.
+
+**Fixed**
+
+- iOS: the load is now committed in `finalizeUpdates`, after the layout
+  metrics, instead of at the end of `updateProps`. A recycled view no longer
+  starts a request sized for the component it was recycled from, and a new
+  view (including the copy a shared element transition mounts) shows a memory
+  cache hit in its first frame.
+- iOS: cancelling a load now invalidates a result Kingfisher had already
+  queued. Previously a recycled view could briefly show, and report through
+  `onLoad`, the previous owner's image or placeholder.
+- iOS: `cover` and `stretch` images are decoded large enough to cover the view.
+  Kingfisher's downsampler bounds only the longest side, so a photo whose
+  aspect ratio differed from the view's was decoded too small and looked soft.
+- iOS: a host matched by several `certificatePins` patterns accepts a pin from
+  any of them, as on Android. It used to pick one pattern in dictionary order.
+- Android: `.example.com` and `*.example.com` pin hosts are translated for
+  OkHttp. `.example.com` made building the HTTP client throw, and
+  `*.example.com` did not cover the domain itself or deeper subdomains as it
+  does on iOS. `configure` now rejects pin hosts neither platform can apply,
+  such as `*`.
+- Android: a retry waiting for its backoff is no longer dropped when the view
+  is detached (a clipped list row, a covered screen); the image used to stay
+  on its placeholder for good.
+- Both: `slide`, `scale` and `gravity` no longer animate a memory cache hit,
+  matching `fade`, and a recycled or dropped view stops any running
+  transition animation.
 
 ## Example app
 
@@ -532,12 +612,12 @@ yarn example web
 ## Testing
 
 ```bash
-yarn test                        # 87 Jest tests: security, props, viewport, component
+yarn test                        # 95 Jest tests: security, props, viewport, component
 yarn typecheck
 yarn lint
 
 yarn test:ios                    # 89 assertions over the Swift URL, header and data uri handling
-yarn test:android                # 43 JUnit tests: security, config, request parsing, cache headers, progress
+yarn test:android                # 44 JUnit tests: security, config, request parsing, cache headers, progress
 ```
 
 Everything above runs on every push and pull request via

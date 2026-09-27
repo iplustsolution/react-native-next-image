@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import ImageIO
 import Kingfisher
 import UIKit
 
@@ -164,10 +165,13 @@ struct NextImageRequest {
     /// - Parameters:
     ///   - deferNetwork: restrict the request to the caches, with no connection.
     ///   - targetSize: view size in points, used for downsampling.
+    ///   - fill: the image has to cover the whole target (`cover`, `stretch`)
+    ///     rather than fit inside it (`contain`, `center`).
     ///   - processors: image processors to chain after downsampling.
     func build(
         deferNetwork: Bool,
         targetSize: CGSize?,
+        fill: Bool = true,
         processors: [any ImageProcessor]
     ) -> Built {
         var options: KingfisherOptionsInfo = []
@@ -198,7 +202,8 @@ struct NextImageRequest {
         options.append(.diskCacheAccessExtendingExpiration(.none))
 
         if ttlSeconds > 0 {
-            options.append(.memoryCacheExpiration(.seconds(min(ttlSeconds, 3600))))
+            // Memory is for what is on screen now; the disk keeps the TTL.
+            options.append(.memoryCacheExpiration(.seconds(min(ttlSeconds, 300))))
         }
 
         switch cache {
@@ -228,7 +233,7 @@ struct NextImageRequest {
                 width: targetSize.width * scale,
                 height: targetSize.height * scale
             )
-            chain.insert(DownsamplingImageProcessor(size: pixelSize), at: 0)
+            chain.insert(NextImageDownsamplingProcessor(size: pixelSize, fill: fill), at: 0)
         }
         let combined = NextImageRequest.combine(chain)
         if let combined {
@@ -309,6 +314,117 @@ struct NextImageRequest {
             ?? NextImageConfig.defaultCacheDurationMinutes
         if minutes <= 0 { return 0 }
         return max(minutes * 60, 1)
+    }
+}
+
+/// Decodes an image at the size the view needs instead of its full size.
+///
+/// Kingfisher's `DownsamplingImageProcessor` bounds the longest side of the
+/// image by the longest side of the target. That suits `contain`, but for
+/// `cover` a photo whose aspect ratio differs from the view's comes out short
+/// on the other axis and is then scaled up on screen, which looks soft: a
+/// 4:3 photo in a 300x300 pixel view is decoded at 300x225 and stretched to
+/// 400x300. This processor reads the pixel size first and decodes just large
+/// enough to cover (`fill`) or fit the target, never larger than the original.
+struct NextImageDownsamplingProcessor: ImageProcessor {
+    /// Target size in pixels.
+    let size: CGSize
+    let fill: Bool
+    let identifier: String
+
+    init(size: CGSize, fill: Bool) {
+        self.size = size
+        self.fill = fill
+        identifier = "com.nextimage.DownsamplingImageProcessor(\(size),\(fill ? "fill" : "fit"))"
+    }
+
+    func process(item: ImageProcessItem, options: KingfisherParsedOptionsInfo) -> KFCrossPlatformImage? {
+        switch item {
+        case let .image(image):
+            // An original already decoded from the cache. Encoding it back to
+            // PNG only to decode it again cost a full redraw and a PNG encode
+            // for every new size, so it is scaled directly instead.
+            return resize(image, scale: options.scaleFactor)
+        case let .data(data):
+            return downsample(data, scale: options.scaleFactor)
+        }
+    }
+
+    private func downsample(_ data: Data, scale: CGFloat) -> KFCrossPlatformImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+        let maxPixelSize = NextImageDownsamplingProcessor.maxPixelSize(
+            imageSize: NextImageDownsamplingProcessor.orientedPixelSize(of: source),
+            target: size,
+            fill: fill
+        )
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
+    }
+
+    private func resize(_ image: UIImage, scale: CGFloat) -> KFCrossPlatformImage? {
+        guard let cgImage = image.cgImage else {
+            guard let data = image.kf.data(format: .unknown) else { return nil }
+            return downsample(data, scale: scale)
+        }
+        let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        let longest = max(pixelSize.width, pixelSize.height)
+        let target = NextImageDownsamplingProcessor.maxPixelSize(imageSize: pixelSize, target: size, fill: fill)
+        guard longest > 0, target < longest else {
+            return UIImage(cgImage: cgImage, scale: scale, orientation: image.imageOrientation)
+        }
+        let ratio = target / longest
+        let output = CGSize(
+            width: max((pixelSize.width * ratio).rounded(), 1),
+            height: max((pixelSize.height * ratio).rounded(), 1)
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: output, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: output))
+        }
+        guard let resized = rendered.cgImage else { return nil }
+        return UIImage(cgImage: resized, scale: scale, orientation: .up)
+    }
+
+    /// The pixel size as displayed, after the EXIF orientation is applied.
+    private static func orientedPixelSize(of source: CGImageSource) -> CGSize? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+              width > 0, height > 0
+        else {
+            return nil
+        }
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        // 5 to 8 are the orientations rotated by 90 degrees.
+        return (5 ... 8).contains(orientation)
+            ? CGSize(width: height, height: width)
+            : CGSize(width: width, height: height)
+    }
+
+    /// The longest side to decode at, so the result covers or fits `target`.
+    static func maxPixelSize(imageSize: CGSize?, target: CGSize, fill: Bool) -> CGFloat {
+        let fallback = max(target.width, target.height)
+        guard let imageSize, imageSize.width > 0, imageSize.height > 0,
+              target.width > 0, target.height > 0
+        else {
+            return fallback
+        }
+        let widthRatio = target.width / imageSize.width
+        let heightRatio = target.height / imageSize.height
+        let ratio = min(fill ? max(widthRatio, heightRatio) : min(widthRatio, heightRatio), 1)
+        return max((max(imageSize.width, imageSize.height) * ratio).rounded(.up), 1)
     }
 }
 

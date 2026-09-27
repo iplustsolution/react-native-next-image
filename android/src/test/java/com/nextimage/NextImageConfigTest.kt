@@ -131,4 +131,32 @@ class NextImageConfigTest {
       )
     )
   }
+
+  @Test
+  fun `maps pin host patterns onto patterns OkHttp accepts`() {
+    assertEquals(listOf("cdn.example.com"), NextImageImageLoader.okHttpPinPatterns("cdn.example.com"))
+    assertEquals(
+      listOf("**.example.com"),
+      NextImageImageLoader.okHttpPinPatterns("*.example.com"),
+    )
+    assertEquals(
+      listOf("**.example.com"),
+      NextImageImageLoader.okHttpPinPatterns(".Example.com"),
+    )
+
+    // `.example.com` used to reach OkHttp as is and throw while the client was built.
+    val pin = "sha256/" + "A".repeat(43) + "="
+    val pinner = okhttp3.CertificatePinner.Builder()
+    for (host in listOf("cdn.example.com", "*.example.org", ".example.net")) {
+      for (pattern in NextImageImageLoader.okHttpPinPatterns(host)) {
+        pinner.add(pattern, pin)
+      }
+    }
+    val built = pinner.build()
+    assertEquals(listOf(pin), built.findMatchingPins("example.net").map { it.toString() })
+    assertEquals(listOf(pin), built.findMatchingPins("a.b.example.org").map { it.toString() })
+    assertEquals(listOf(pin), built.findMatchingPins("cdn.example.com").map { it.toString() })
+    assertTrue(built.findMatchingPins("example.com").isEmpty())
+    assertTrue(built.findMatchingPins("other.example.com").isEmpty())
+  }
 }

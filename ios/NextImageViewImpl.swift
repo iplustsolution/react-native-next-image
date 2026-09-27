@@ -46,6 +46,9 @@ public final class NextImageViewImpl: UIImageView {
     @objc public var retryCount: Int = 2
     @objc public var retryDelay: Double = 1000
 
+
+
+
     // MARK: State
 
     private var propsDirty = false
@@ -56,6 +59,12 @@ public final class NextImageViewImpl: UIImageView {
     private var mainImageLoaded = false
     private var requestStartedAt = Date()
     private var lastLayoutSize: CGSize = .zero
+    /// The cache key of the source whose pixels are on screen, whether the
+    /// view's own decode or a recent image standing in for it. A placeholder
+    /// or default image is not the source, so it leaves this `nil`.
+    private var displayedKey: String?
+    /// A re-decode for a view that grew, started once its size settles.
+    private var pendingGrowth: DispatchWorkItem?
     /// Identifies the latest `loadImage` call. Kingfisher reports a cancelled
     /// task asynchronously, by which time a newer task may own `task` and
     /// `pendingSignature`; the stale completion must not touch them.
@@ -93,11 +102,28 @@ public final class NextImageViewImpl: UIImageView {
             }
         } else if mainImageLoaded, hasGrown(beyond: bounds.size) {
             // Only a view that grew needs a new decode; a shrunken view can
-            // keep displaying the larger bitmap it already has.
-            propsDirty = true
-            commitProps()
+            // keep displaying the larger bitmap it already has. A view that is
+            // being animated, such as a shared element transition copy, grows
+            // every frame, so the decode waits until the size stops changing
+            // and the current bitmap is scaled up until then.
+            scheduleGrowthDecode()
         }
     }
+
+    private func scheduleGrowthDecode() {
+        pendingGrowth?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingGrowth = nil
+            guard self.mainImageLoaded, self.hasGrown(beyond: self.bounds.size) else { return }
+            self.propsDirty = true
+            self.commitProps()
+        }
+        pendingGrowth = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NextImageViewImpl.growthSettleDelay, execute: work)
+    }
+
+    private static let growthSettleDelay: TimeInterval = 0.2
 
     private func hasGrown(beyond size: CGSize) -> Bool {
         guard let image else { return true }
@@ -107,11 +133,30 @@ public final class NextImageViewImpl: UIImageView {
     }
 
     /// Decode sizes are bucketed so that a one point layout change does not
-    /// invalidate the rendered image.
+    /// invalidate the rendered image. The bucket is also the size the decode
+    /// is made at, so views of nearly the same size (a card and the copy a
+    /// shared element transition mounts for it) share one cached variant.
+    private func decodeTargetSize() -> CGSize? {
+        guard downsample, bounds.size != .zero else { return nil }
+        let bucket: (CGFloat) -> CGFloat = { ($0 / 32).rounded(.up) * 32 }
+        return CGSize(width: bucket(bounds.width), height: bucket(bounds.height))
+    }
+
     private func decodeSizeKey() -> String {
-        guard downsample, bounds.size != .zero else { return "orig" }
-        let bucket: (CGFloat) -> Int = { Int((($0 / 32).rounded(.up)) * 32) }
-        return "\(bucket(bounds.width))x\(bucket(bounds.height))"
+        guard let size = decodeTargetSize() else { return "orig" }
+        return "\(Int(size.width))x\(Int(size.height))"
+    }
+
+    /// Grayscale, blur and tint change what is drawn, so only a plain decode
+    /// can stand in for another view of the same source.
+    private var sharesRecentImage: Bool {
+        !grayscale && blurRadiusValue <= 0 && tintColorValue == nil
+    }
+
+    /// A full size decode is not kept as a recent image: it is large, and any
+    /// view that could use it decodes its own size anyway.
+    private var storesRecentImage: Bool {
+        sharesRecentImage && downsample
     }
 
     /// Called once per update transaction, after every prop has been set.
@@ -196,15 +241,44 @@ public final class NextImageViewImpl: UIImageView {
         signature: String,
         pendingKey: String
     ) {
-        cancelRequests()
+        cancelRequests(detachingView: false)
         pendingSignature = pendingKey
         requestStartedAt = Date()
         loadToken += 1
         let token = loadToken
 
-        if !mainImageLoaded {
+        // Kingfisher is always told to keep the current image (below), so it
+        // never blanks the view when a request starts. The view clears it
+        // itself, and only when it shows a different source; a placeholder
+        // stays until the real image replaces it.
+        if let shown = displayedKey, shown != request.cacheKey {
+            image = nil
+            displayedKey = nil
+            mainImageLoaded = false
+        }
+
+        // A view that has nothing on screen yet shows the image last decoded
+        // for this source, whatever its size, and then swaps in its own decode
+        // without animating. Without this the copy Reanimated mounts for a
+        // shared element transition, and the target on the next screen, stay
+        // empty until a decode at their size finishes.
+        var showsRecentImage = false
+        if !mainImageLoaded, image == nil, sharesRecentImage,
+           let recent = NextImageEngine.shared.recentImage(forKey: request.cacheKey) {
+            image = recent
+            displayedKey = request.cacheKey
+            showsRecentImage = true
+        }
+
+        if !mainImageLoaded, !showsRecentImage {
             showPlaceholder(for: request)
         }
+
+        // Only an image that appears in an empty view animates in. Kingfisher
+        // starts its fade by clearing the view, so fading over an image already
+        // on screen (a recent image, a placeholder, or a smaller decode of a
+        // view that grew) blanked it for the length of the fade.
+        let animatesIn = image == nil
 
         var processors: [any ImageProcessor] = []
         if grayscale {
@@ -216,7 +290,8 @@ public final class NextImageViewImpl: UIImageView {
 
         let built = request.build(
             deferNetwork: deferNetwork,
-            targetSize: downsample && bounds.size != .zero ? bounds.size : nil,
+            targetSize: decodeTargetSize(),
+            fill: fillsView,
             processors: processors
         )
         var options = built.options
@@ -227,7 +302,7 @@ public final class NextImageViewImpl: UIImageView {
         if tintColorValue != nil {
             options.append(.imageModifier(RenderingModeImageModifier(renderingMode: .alwaysTemplate)))
         }
-        if transition == "fade", transitionDuration > 0 {
+        if transition == "fade", transitionDuration > 0, animatesIn {
             options.append(.transition(.fade(transitionDuration / 1000.0)))
         }
         if retryCount > 0 {
@@ -236,9 +311,10 @@ public final class NextImageViewImpl: UIImageView {
                 initialDelay: max(retryDelay, 0) / 1000.0
             )))
         }
-        if image != nil {
-            options.append(.keepCurrentImageWhileLoading)
-        }
+        // Without this Kingfisher sets its placeholder, which is `nil`, as the
+        // image whenever a request starts. Every re-decode of a growing view,
+        // such as a shared element transition copy, then blanked it for a frame.
+        options.append(.keepCurrentImageWhileLoading)
 
         // Kingfisher reports `.none` when it rebuilds a processed variant from
         // the original on disk, which would read as a download. Where the
@@ -269,12 +345,21 @@ public final class NextImageViewImpl: UIImageView {
 
                 switch result {
                 case let .success(value):
+                    if self.storesRecentImage {
+                        NextImageEngine.shared.rememberDisplayed(value.image, forKey: request.cacheKey)
+                    }
+                    self.displayedKey = request.cacheKey
                     self.startedSignature = nil
                     self.loadedSignature = signature
                     self.mainImageLoaded = true
                     self.secondaryTask?.cancel()
                     self.secondaryTask = nil
-                    self.applyCustomTransition()
+                    // Like Kingfisher's own fade, a memory hit is shown as is:
+                    // an image that is already on screen elsewhere, such as the
+                    // copy a shared element transition mounts, must not animate in.
+                    if value.cacheType != .memory, animatesIn {
+                        self.applyCustomTransition()
+                    }
                     self.onNextImageLoad?([
                         "width": value.image.size.width,
                         "height": value.image.size.height,
@@ -302,6 +387,8 @@ public final class NextImageViewImpl: UIImageView {
                     self.startedSignature = nil
                     self.loadedSignature = nil
                     self.mainImageLoaded = false
+                    // A recent image standing in for this source is not it either.
+                    self.displayedKey = nil
                     self.showDefaultSource()
                     self.emitError(
                         message: NextImageViewImpl.errorMessage(for: error),
@@ -343,6 +430,7 @@ public final class NextImageViewImpl: UIImageView {
         guard fallback.uri != nil, let kingfisherSource = fallback.kingfisherSource else {
             if !mainImageLoaded {
                 image = nil
+                displayedKey = nil
             }
             return
         }
@@ -354,19 +442,30 @@ public final class NextImageViewImpl: UIImageView {
     private func retrieveSecondary(_ request: NextImageRequest, _ source: Source) -> DownloadTask? {
         let built = request.build(
             deferNetwork: false,
-            targetSize: downsample && bounds.size != .zero ? bounds.size : nil,
+            targetSize: decodeTargetSize(),
+            fill: fillsView,
             processors: []
         )
         if let identifier = built.processorIdentifier {
             NextImageEngine.shared.rememberProcessor(identifier, forKey: request.cacheKey)
         }
+        // A result that lands after the view moved on (a new source, a
+        // recycle) belongs to the previous owner and must not be shown.
+        let token = loadToken
         return KingfisherManager.shared.retrieveImage(with: source, options: built.options) { [weak self] result in
             guard case let .success(value) = result else { return }
             DispatchQueue.main.async {
-                guard let self, !self.mainImageLoaded else { return }
+                // Nor may it cover a recent image of the real source.
+                guard let self, token == self.loadToken, !self.mainImageLoaded, self.displayedKey == nil else { return }
                 self.image = value.image
             }
         }
+    }
+
+    /// `cover` and `stretch` fill both axes of the view, so their decode has
+    /// to be large enough on both; `contain` and `center` only need to fit.
+    private var fillsView: Bool {
+        resizeMode != "contain" && resizeMode != "center"
     }
 
     private func applyContentMode() {
@@ -439,19 +538,39 @@ public final class NextImageViewImpl: UIImageView {
         ])
     }
 
-    private func cancelRequests() {
+    /// `detachingView` is false only when a new request is set on the view
+    /// straight away, which gives Kingfisher a new task identifier anyway.
+    private func cancelRequests(detachingView: Bool = true) {
         task?.cancel()
         task = nil
         secondaryTask?.cancel()
         secondaryTask = nil
         pendingSignature = nil
+        // Cancelling does not stop a result Kingfisher has already queued for
+        // the main thread. Without a new token that result would still be
+        // reported, and without a new task identifier Kingfisher would still
+        // put it on screen: a recycled view could briefly show, and report,
+        // the image of the component it was recycled from.
+        loadToken += 1
+        kf.cancelDownloadTask()
+        // A `nil` source makes Kingfisher show its placeholder, which is `nil`:
+        // it clears the image. Done before every request, it blanked the view
+        // each time an image was re-decoded, so a shared element transition
+        // copy, which re-decodes as it grows, flashed empty over and over.
+        if detachingView {
+            _ = kf.setImage(with: nil as Source?)
+        }
     }
 
     /// Called when the host view is dropped or recycled.
     @objc public func cleanup() {
         cancelRequests()
-        kf.cancelDownloadTask()
+        pendingGrowth?.cancel()
+        pendingGrowth = nil
+        layer.removeAllAnimations()
+        transform = .identity
         image = nil
+        displayedKey = nil
         startedSignature = nil
         loadedSignature = nil
         mainImageLoaded = false

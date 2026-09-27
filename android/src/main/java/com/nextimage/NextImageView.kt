@@ -374,7 +374,12 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     placeholderDisposable = null
     applyFilters()
     if (!duplicate) {
-      applyCustomTransition()
+      // Like Coil's own crossfade, a memory hit is shown as is: an image that
+      // is already on screen elsewhere, such as the copy a shared element
+      // transition mounts, must not animate in.
+      if (result.dataSource != DataSource.MEMORY_CACHE) {
+        applyCustomTransition()
+      }
       emitSuccess(result)
     }
   }
@@ -434,9 +439,14 @@ class NextImageView(context: ReactContext) : ImageView(context) {
       // Nothing is reported to JS yet: a retry that succeeds is not a failure.
       attempt += 1
       val delay = (retryDelayMs.toLong() shl (attempt - 1)).coerceAtMost(60_000L)
-      val runnable = Runnable {
-        retryRunnable = null
-        load(spec, signature, pendingKey)
+      val runnable = object : Runnable {
+        override fun run() {
+          // `removeCallbacks` cannot reach a runnable posted before the view
+          // was detached, so one that was cancelled since must not load.
+          if (retryRunnable !== this) return
+          retryRunnable = null
+          load(spec, signature, pendingKey)
+        }
       }
       retryRunnable = runnable
       postDelayed(runnable, delay)
@@ -645,6 +655,7 @@ class NextImageView(context: ReactContext) : ImageView(context) {
   /** Called when the view manager drops or recycles this instance. */
   fun cleanup() {
     clearRequest()
+    clearAnimation()
     setImageDrawable(null)
     startedSignature = null
     loadedSignature = null
@@ -655,10 +666,16 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     propsDirty = false
   }
 
+  /**
+   * A scheduled retry is deliberately kept. Coil restarts its own request when
+   * the view is attached again, but a retry that is waiting for its backoff is
+   * not a Coil request: dropping it here left an image that failed once, then
+   * scrolled out of a clipped list or sat on a covered screen, on its
+   * placeholder for good. A retry that fires while detached is parked by Coil
+   * until the view is back; `cleanup` cancels it when the view is dropped.
+   */
   override fun onDetachedFromWindow() {
     super.onDetachedFromWindow()
-    retryRunnable?.let { removeCallbacks(it) }
-    retryRunnable = null
     unregisterProgress()
   }
 

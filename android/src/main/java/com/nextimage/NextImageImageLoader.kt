@@ -140,6 +140,24 @@ object NextImageImageLoader {
       .build()
   }
 
+  /**
+   * OkHttp's pin patterns differ from NextImage's host patterns: it rejects
+   * `.example.com` outright, which would throw while building the client, and
+   * its `*.example.com` covers exactly one label and not the domain itself.
+   * NextImage's `.example.com` and `*.example.com` both mean the domain and
+   * every subdomain, as they do for `allowedHosts` and on iOS, which in OkHttp
+   * terms is `**.example.com`: it matches the domain itself and any depth.
+   */
+  internal fun okHttpPinPatterns(host: String): List<String> {
+    val pattern = host.trim().lowercase()
+    val domain = when {
+      pattern.startsWith("*.") -> pattern.substring(2)
+      pattern.startsWith(".") -> pattern.substring(1)
+      else -> return listOf(pattern)
+    }
+    return listOf("**.$domain")
+  }
+
   private fun buildClient(config: NextImageConfig, debuggable: Boolean): OkHttpClient {
     val timeout = config.requestTimeoutMs
 
@@ -179,7 +197,9 @@ object NextImageImageLoader {
     if (config.certificatePins.isNotEmpty()) {
       val pinner = CertificatePinner.Builder()
       for ((host, pins) in config.certificatePins) {
-        pinner.add(host, *pins.toTypedArray())
+        for (pattern in okHttpPinPatterns(host)) {
+          pinner.add(pattern, *pins.toTypedArray())
+        }
       }
       builder.certificatePinner(pinner.build())
     }

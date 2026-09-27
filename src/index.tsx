@@ -110,6 +110,13 @@ function resolveNativeView(): React.ComponentType<
 const NextImageModule = resolveNativeModule();
 const NextImageView = resolveNativeView();
 
+/**
+ * Any component that renders the native view, such as
+ * `Animated.createAnimatedComponent(NextImageNativeView)`. It receives every
+ * prop `NextImage` would give the native view, plus `nativeViewProps`.
+ */
+export type NextImageNativeComponent = React.ComponentType<any>;
+
 const resizeMode = {
   contain: 'contain',
   cover: 'cover',
@@ -221,6 +228,22 @@ export interface NextImageProps extends AccessibilityProps, ViewProps {
   style?: StyleProp<ImageStyle>;
   testID?: string;
   children?: React.ReactNode;
+  /**
+   * Renders the native image view through this component instead of the raw
+   * `NextImageNativeView`. The component must end up rendering
+   * `NextImageNativeView` with the props it receives; the usual reason is
+   * `Animated.createAnimatedComponent(NextImageNativeView)`, so a Reanimated
+   * shared element transition can tag the image itself rather than the
+   * container. Ignored where no native view exists (web, bare Jest).
+   */
+  nativeComponent?: NextImageNativeComponent;
+  /**
+   * Extra props spread onto the native image view, e.g.
+   * `{ sharedTransitionTag, sharedTransitionStyle }`. A `style` here is
+   * applied after the view's own absolute fill. Props NextImage manages
+   * (`source`, the load events and the rendering props) always win.
+   */
+  nativeViewProps?: Readonly<Record<string, unknown>>;
 }
 
 type PreparedSource =
@@ -315,6 +338,8 @@ function NextImageBase({
   retryCount,
   retryDelay,
   resizeMode: resizeModeProp,
+  nativeComponent,
+  nativeViewProps,
   forwardedRef,
   ...rest
 }: NextImageProps & { forwardedRef: React.Ref<HostInstance> }) {
@@ -393,8 +418,15 @@ function NextImageBase({
 
   // Callbacks are read through a ref so that inline arrow handlers do not
   // count as a change to the source.
-  const callbacksRef = useRef({ onError, onLoadEnd });
-  callbacksRef.current = { onError, onLoadEnd };
+  const callbacksRef = useRef({ onError, onLoadEnd, onLoad });
+  callbacksRef.current = { onError, onLoadEnd, onLoad };
+
+  // An image that loaded, from cache or network, has nothing left to wait
+  // for, so it stops being measured even while it is still far off screen.
+  const handleNativeLoad = useCallback((event: OnLoadEvent) => {
+    setNearViewport(true);
+    callbacksRef.current.onLoad?.(event);
+  }, []);
 
   // A blocked source never reaches native, so it is reported from here. This
   // fires once per distinct rejected source, not once per render.
@@ -501,8 +533,19 @@ function NextImageBase({
   );
 
   // Without a native view (web, or a missing autolink) fall back to the
-  // platform image so the tree still renders.
-  const NativeView = NextImageView;
+  // platform image so the tree still renders. A caller supplied wrapper is
+  // only used when there is a native view for it to wrap.
+  const NativeView =
+    NextImageView != null ? (nativeComponent ?? NextImageView) : null;
+  const { style: extraNativeStyle, ...extraNativeProps } =
+    nativeViewProps ?? {};
+  const nativeStyle = useMemo(
+    () =>
+      extraNativeStyle == null
+        ? StyleSheet.absoluteFill
+        : [StyleSheet.absoluteFill, extraNativeStyle as StyleProp<ViewStyle>],
+    [extraNativeStyle]
+  );
   const fallbackSource = useMemo(() => {
     // react-native-web resolves bundled assets itself.
     if (typeof source === 'number') {
@@ -522,7 +565,8 @@ function NextImageBase({
     <View {...rest} style={containerStyle} ref={setRef} onLayout={handleLayout}>
       {nativeSource != null && NativeView != null ? (
         <NativeView
-          style={StyleSheet.absoluteFill}
+          {...extraNativeProps}
+          style={nativeStyle}
           source={nativeSource}
           defaultSource={nativeDefault}
           placeholder={nativePlaceholder}
@@ -530,7 +574,7 @@ function NextImageBase({
           deferNetwork={deferNetwork}
           onNextImageLoadStart={onLoadStart}
           onNextImageProgress={onProgress}
-          onNextImageLoad={onLoad}
+          onNextImageLoad={handleNativeLoad}
           onNextImageError={onError}
           onNextImageLoadEnd={onLoadEnd}
           {...nativeProps}
@@ -756,6 +800,26 @@ const styles = StyleSheet.create({
  * instead and the cache APIs become no-ops.
  */
 export const isNativeViewAvailable = NextImageView != null;
+
+/**
+ * The raw native image view, or `null` where there is none (web, bare Jest).
+ * Wrap it and pass the wrapper as `nativeComponent`:
+ *
+ * ```tsx
+ * const AnimatedNextImageView = NextImageNativeView
+ *   ? Animated.createAnimatedComponent(NextImageNativeView)
+ *   : undefined;
+ *
+ * <NextImage
+ *   source={{ uri }}
+ *   nativeComponent={AnimatedNextImageView}
+ *   nativeViewProps={{ sharedTransitionTag: 'photo-1' }}
+ * />
+ * ```
+ */
+export const NextImageNativeView: React.ComponentType<
+  Record<string, unknown>
+> | null = NextImageView;
 
 export { CACHE_CONTROLS, PRIORITIES, RESIZE_MODES, TRANSITIONS };
 export default NextImage;

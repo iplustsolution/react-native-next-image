@@ -159,11 +159,52 @@ static NSDictionary *_Nullable NextImageSourceDictionary(const SourceStruct &sou
   _imageView.retryDelay = (double)newProps.retryDelay;
 
   [super updateProps:props oldProps:oldProps];
+}
+
+- (void)finalizeUpdates:(RNComponentViewUpdateMask)updateMask
+{
+  [super finalizeUpdates:updateMask];
+  [self removeContentMask];
 
   // Every prop for this update has now been applied, so at most one request
-  // is started no matter how many props changed.
+  // is started no matter how many props changed. This runs after
+  // `updateLayoutMetrics`, so a new or recycled view already has its real
+  // size: the decode is sized correctly and a memory cache hit is on screen
+  // in the same frame the view is mounted, with no placeholder in between.
+  // That is also what keeps the copy Reanimated mounts for a shared element
+  // transition from flashing.
   [_imageView commitProps];
 }
+
+#pragma mark - Layout
+
+- (void)layoutSubviews
+{
+  [super layoutSubviews];
+
+  // React Native sizes the content view only in `updateLayoutMetrics`. A
+  // frame that changes any other way, such as a shared element transition
+  // copy growing into its target or a recycled view, would otherwise leave
+  // the image at its previous size inside a larger view.
+  _imageView.frame = UIEdgeInsetsInsetRect(self.bounds, RCTUIEdgeInsetsFromEdgeInsets(_layoutMetrics.contentInsets));
+  [self removeContentMask];
+}
+
+// For a view that clips (`overflow: hidden` with a border radius) React Native
+// gives every `UIImageView` child its own mask, sized to the child at that
+// moment, and only rebuilds it while the view still clips. The image view here
+// is such a child, so a view whose size or clipping changes without that
+// rebuild (a shared element transition copy growing into a target that does
+// not clip, or a recycled view) kept showing the image cut to its old size and
+// corners. The mask is not needed: this view clips its children to its own
+// shape, and the image view applies the corner radius itself.
+- (void)removeContentMask
+{
+  if (_imageView.layer.mask != nil) {
+    _imageView.layer.mask = nil;
+  }
+}
+
 
 #pragma mark - Lifecycle
 
@@ -175,6 +216,16 @@ static NSDictionary *_Nullable NextImageSourceDictionary(const SourceStruct &sou
   [super prepareForRecycle];
   static const auto defaultProps = std::make_shared<const NextImageViewProps>();
   _props = defaultProps;
+
+  // Reanimated writes transform and opacity straight to the view while it
+  // runs a shared element transition, and the copy it mounts for one is
+  // recycled afterwards. React Native only resets these for views driven by
+  // its own Animated, and the next owner's props are compared against the
+  // defaults above, so a leftover scale or opacity would never be undone.
+  self.layer.transform = CATransform3DIdentity;
+  self.layer.opacity = 1;
+  self.layer.cornerRadius = 0;
+  [self removeContentMask];
 }
 
 @end

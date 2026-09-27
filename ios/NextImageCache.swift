@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Kingfisher
+import UIKit
 
 /// Holds the active configuration. Reads happen on the main thread for every
 /// image load and writes only from `NextImage.configure`, so a plain lock is
@@ -42,13 +43,18 @@ public final class NextImageConfigStore: NSObject {
         lock.unlock()
     }
 
+    /// Every pin of every pattern that matches `host`, as OkHttp's
+    /// `CertificatePinner` does. Returning the first match instead would depend
+    /// on dictionary order when two patterns match, such as `cdn.example.com`
+    /// and `*.example.com`, and a valid chain would be refused at random.
     public func pins(forHost host: String) -> [String] {
+        var matched: [String] = []
         for (pattern, pins) in current.certificatePins
             where NextImageSecurity.hostMatches(host, pattern: pattern)
         {
-            return pins
+            matched.append(contentsOf: pins)
         }
-        return []
+        return matched
     }
 
     public func hasAnyPins() -> Bool {
@@ -79,10 +85,30 @@ public final class NextImageEngine: NSObject {
     /// remembered here for `removeFromCache`.
     private var processedVariants: [String: Set<String>] = [:]
     private let variantLock = NSLock()
+    /// The image a view last showed for a source, at whatever size it was
+    /// decoded. A new view for that source (a shared element transition copy,
+    /// the same photo on the next screen) shows it on its first frame while its
+    /// own size is decoded, instead of starting empty.
+    private let recentImages: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 48
+        cache.totalCostLimit = 48 * 1024 * 1024
+        return cache
+    }()
+    private var memoryWarningObserver: NSObjectProtocol?
 
     override public init() {
         super.init()
         configure()
+        // Kingfisher empties its own memory cache on a warning; the recent
+        // images are decoded bitmaps too and must go with it.
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.recentImages.removeAllObjects()
+        }
     }
 
     /// Applies the current configuration to Kingfisher's shared cache and downloader.
@@ -91,9 +117,13 @@ public final class NextImageEngine: NSObject {
         let cache = ImageCache.default
         let downloader = ImageDownloader.default
 
-        if config.memoryCacheBytes > 0 {
-            cache.memoryStorage.config.totalCostLimit = Int(config.memoryCacheBytes)
-        }
+        // Kingfisher's own default is a quarter of the device's RAM with no
+        // count limit, which lets decoded images alone push the app towards a
+        // memory kill. Without an explicit size the cache is an eighth of RAM,
+        // at most 256 MB.
+        cache.memoryStorage.config.totalCostLimit = config.memoryCacheBytes > 0
+            ? Int(config.memoryCacheBytes)
+            : NextImageEngine.defaultMemoryCacheBytes
         cache.diskStorage.config.sizeLimit = config.diskCacheBytes
         // Per-request expiration overrides this; it is the fallback for a
         // request that does not set one.
@@ -126,13 +156,33 @@ public final class NextImageEngine: NSObject {
         return processedVariants.removeValue(forKey: key) ?? []
     }
 
+    /// Only plain decodes are kept: a grayscale, blurred or tinted one must not
+    /// stand in for the plain image.
+    func rememberDisplayed(_ image: UIImage, forKey key: String) {
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        recentImages.setObject(image, forKey: key as NSString, cost: cost)
+    }
+
+    static let defaultMemoryCacheBytes: Int = {
+        let eighth = ProcessInfo.processInfo.physicalMemory / 8
+        return Int(min(eighth, 256 * 1024 * 1024))
+    }()
+
+    func recentImage(forKey key: String) -> UIImage? {
+        recentImages.object(forKey: key as NSString)
+    }
+
     @objc public func clearMemoryCache() {
         ImageCache.default.clearMemoryCache()
+        recentImages.removeAllObjects()
     }
 
     @objc(clearDiskCacheWithCompletion:)
     public func clearDiskCache(completion: @escaping @Sendable () -> Void) {
         ImageCache.default.clearDiskCache(completion: completion)
+        variantLock.lock()
+        processedVariants.removeAll()
+        variantLock.unlock()
         // Memory is not cleared here, but a variant list only matters for a
         // targeted removal, and anything left in memory expires on its own.
     }
@@ -157,6 +207,7 @@ public final class NextImageEngine: NSObject {
         let key = NextImageEngine.cacheKey(uri: uri, cacheKey: cacheKey)
         let cache = ImageCache.default
         let variants = takeVariants(forKey: key)
+        recentImages.removeObject(forKey: key as NSString)
 
         var existed = cache.isCached(forKey: key)
         let group = DispatchGroup()
@@ -224,7 +275,10 @@ public final class NextImageEngine: NSObject {
             .diskCacheExpiration(.never),
             .diskCacheAccessExtendingExpiration(.none),
             .redirectHandler(NextImageRedirectHandler.shared),
-            .backgroundDecode,
+            // A prefetch warms the disk. The views look up the decode for their
+            // own size, so a full size bitmap kept in memory would only take
+            // room from the images on screen.
+            .memoryCacheExpiration(.expired),
         ]
         run { done in
             ImagePrefetcher(urls: urls, options: options, completionHandler: { skipped, _, completed in
@@ -245,6 +299,8 @@ public final class NextImageEngine: NSObject {
             let request = NextImageRequest(source: source, config: config)
             guard let kingfisherSource = request.kingfisherSource else { continue }
             let options = request.options(deferNetwork: false, targetSize: nil, processors: [])
+                .filter { if case .backgroundDecode = $0 { return false }; return true }
+                + [.memoryCacheExpiration(.expired)]
             run { done in
                 ImagePrefetcher(
                     sources: [kingfisherSource],

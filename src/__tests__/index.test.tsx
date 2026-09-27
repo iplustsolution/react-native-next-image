@@ -248,8 +248,156 @@ describe('rendering', () => {
     });
 
     const props = findNative(tree!.root)!.props as Record<string, unknown>;
-    expect(props.onNextImageLoad).toBe(onLoad);
+    const loadEvent = {
+      nativeEvent: { width: 1, height: 1, cacheType: 'memory', elapsed: 0 },
+    };
+    act(() => (props.onNextImageLoad as (event: unknown) => void)(loadEvent));
+    expect(onLoad).toHaveBeenCalledWith(loadEvent);
     expect(props.onNextImageProgress).toBe(onProgress);
+  });
+});
+
+describe('custom native component', () => {
+  const uri = 'https://example.com/a.jpg';
+
+  it('exports the raw native view', () => {
+    expect(NextImageModule.NextImageNativeView).toBe('NextImageView');
+  });
+
+  it('renders the native view with only its own props by default', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri }}
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    const props = findNative(tree!.root)!.props as Record<string, unknown>;
+    expect(props.style).toBe(StyleSheet.absoluteFill);
+    expect(props.sharedTransitionTag).toBeUndefined();
+  });
+
+  it('spreads nativeViewProps onto the default native view', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri }}
+          nativeViewProps={{ sharedTransitionTag: 'photo-1', testID: 'img' }}
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    const props = findNative(tree!.root)!.props as Record<string, unknown>;
+    expect(props.sharedTransitionTag).toBe('photo-1');
+    expect(props.testID).toBe('img');
+    expect(props.style).toBe(StyleSheet.absoluteFill);
+  });
+
+  it('renders through nativeComponent with every native prop', () => {
+    const received: Record<string, unknown>[] = [];
+    const Wrapper = (props: Record<string, unknown>) => {
+      received.push(props);
+      return <Text>wrapped</Text>;
+    };
+    const sharedTransitionStyle = { duration: 300 };
+    const onLoad = jest.fn();
+    let tree: ReturnType<typeof create> | undefined;
+
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri }}
+          resizeMode="contain"
+          onLoad={onLoad}
+          nativeComponent={Wrapper}
+          nativeViewProps={{
+            sharedTransitionTag: 'photo-1',
+            sharedTransitionStyle,
+          }}
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    expect(findNative(tree!.root)).toBeNull();
+    expect(tree!.root.findByType(Text).props.children).toBe('wrapped');
+    const props = received[received.length - 1]!;
+    expect(props.sharedTransitionTag).toBe('photo-1');
+    expect(props.sharedTransitionStyle).toBe(sharedTransitionStyle);
+    expect(props.resizeMode).toBe('contain');
+    const loadEvent = {
+      nativeEvent: { width: 1, height: 1, cacheType: 'memory', elapsed: 0 },
+    };
+    act(() => (props.onNextImageLoad as (event: unknown) => void)(loadEvent));
+    expect(onLoad).toHaveBeenCalledWith(loadEvent);
+    expect(props.deferNetwork).toBe(false);
+    expect(props.style).toBe(StyleSheet.absoluteFill);
+    expect((props.source as { uri: string }).uri).toBe(uri);
+  });
+
+  it('never lets nativeViewProps override the managed props', () => {
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri }}
+          nativeViewProps={{
+            source: { uri: 'https://evil.example/x.jpg' },
+            resizeMode: 'stretch',
+            deferNetwork: true,
+          }}
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    const props = findNative(tree!.root)!.props as Record<string, unknown>;
+    expect((props.source as { uri: string }).uri).toBe(uri);
+    expect(props.resizeMode).toBe('cover');
+    expect(props.deferNetwork).toBe(false);
+  });
+
+  it('appends a nativeViewProps style after the absolute fill', () => {
+    const extra = { opacity: 0.5 };
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          source={{ uri }}
+          nativeViewProps={{ style: extra }}
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    const props = findNative(tree!.root)!.props as Record<string, unknown>;
+    expect(props.style).toEqual([StyleSheet.absoluteFill, extra]);
+  });
+
+  it('still hands the container ref and props to the outer view', () => {
+    const Wrapper = (props: Record<string, unknown>) => (
+      <Text testID={props.testID as string}>native</Text>
+    );
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <NextImage
+          testID="container"
+          source={{ uri }}
+          nativeComponent={Wrapper}
+          nativeViewProps={{ testID: 'native' }}
+          prefetchThreshold={Number.POSITIVE_INFINITY}
+        />
+      );
+    });
+
+    expect(tree!.root.findAllByProps({ testID: 'container' })).not.toEqual([]);
+    expect(tree!.root.findByType(Text).props.testID).toBe('native');
   });
 });
 
@@ -554,6 +702,25 @@ describe('configure', () => {
       allowedHosts: ['cdn.example.com'],
       diskCacheBytes: 1024,
     });
+  });
+
+  it('refuses a certificate pin host pattern native pinning cannot express', () => {
+    const pin = `sha256/${'A'.repeat(43)}=`;
+    for (const host of ['*', '**.example.com', 'cdn.*.com', '', 'a b.com']) {
+      expect(() =>
+        NextImage.configure({ certificatePins: { [host]: [pin] } })
+      ).toThrow(/certificatePins host/);
+    }
+    expect(mockNativeModule.configure).not.toHaveBeenCalled();
+    expect(() =>
+      NextImage.configure({
+        certificatePins: {
+          'cdn.example.com': [pin],
+          '*.example.org': [pin],
+          '.example.net': [pin],
+        },
+      })
+    ).not.toThrow();
   });
 
   it('refuses a malformed certificate pin', () => {

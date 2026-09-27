@@ -567,10 +567,24 @@ export function isSensitiveHeader(name: string): boolean {
 /** Pins are `sha256/` + base64 of a 32 byte SHA-256 digest. */
 const PIN_PATTERN = /^sha256\/[A-Za-z0-9+/]{43}=$/;
 
+/**
+ * Host patterns a pin can be attached to: `example.com`, `.example.com` or
+ * `*.example.com`. The last two cover the domain and every subdomain, as in
+ * `allowedHosts`. A bare `*` is refused: OkHttp cannot pin every host, and a
+ * pattern Android cannot apply must not quietly leave a host unpinned.
+ */
+const PIN_HOST_PATTERN =
+  /^(\*\.|\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
+
 export function validateCertificatePins(
   pins: Readonly<Record<string, readonly string[]>>
 ): void {
   for (const host of Object.keys(pins)) {
+    if (!PIN_HOST_PATTERN.test(host)) {
+      throw new Error(
+        `NextImage: certificatePins host "${host}" must be a host name, ".example.com" or "*.example.com".`
+      );
+    }
     const hostPins = pins[host];
     if (!hostPins || hostPins.length === 0) {
       throw new Error(
