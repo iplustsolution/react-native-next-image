@@ -1,0 +1,301 @@
+name: Release
+
+# Run by hand from the Actions tab. The flow is:
+#
+#   validate  ->  checks (all of ci.yml)  ->  package  ->  [approval]  ->  publish
+#
+# `package` builds the tarball once. `publish` waits in the `npm` environment
+# until a required reviewer approves it, then uploads that exact tarball to npm
+# and GitHub Packages, tags the commit and creates the GitHub release.
+# See CONTRIBUTING.md#publishing-to-npm for the one-time repository setup.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'patch, minor, major, prepatch, preminor, premajor, prerelease, or an exact version such as 0.1.0 or 0.1.0-beta.1'
+        required: true
+        default: patch
+      npm_tag:
+        description: 'npm dist-tag. "auto" means "beta" for a pre-release and "latest" otherwise.'
+        type: choice
+        options:
+          - auto
+          - latest
+          - beta
+          - next
+        default: auto
+      github_packages:
+        description: 'Also publish @iplustsolution/react-native-next-image to GitHub Packages'
+        type: boolean
+        default: true
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_NAME: react-native-next-image
+  GITHUB_PACKAGE_NAME: '@iplustsolution/react-native-next-image'
+
+jobs:
+  validate:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      npm_tag: ${{ steps.version.outputs.npm_tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+    steps:
+      - name: Only release from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Releases are cut from main. This run is on ${GITHUB_REF}."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Resolve version and dist-tag
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+
+          case "$INPUT_VERSION" in
+            patch|minor|major|prepatch|preminor|premajor|prerelease)
+              npm version "$INPUT_VERSION" --no-git-tag-version --preid beta > /dev/null
+              ;;
+            *)
+              if ! [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+                echo "::error::'$INPUT_VERSION' is neither a bump keyword nor a version like 1.2.3 or 1.2.3-beta.1."
+                exit 1
+              fi
+              npm version "$INPUT_VERSION" --no-git-tag-version --allow-same-version > /dev/null
+              ;;
+          esac
+
+          VERSION=$(node -p "require('./package.json').version")
+
+          if [[ "$VERSION" == *-* ]]; then PRERELEASE=true; else PRERELEASE=false; fi
+
+          NPM_TAG="$INPUT_NPM_TAG"
+          if [[ "$NPM_TAG" == auto ]]; then
+            if [[ "$PRERELEASE" == true ]]; then NPM_TAG=beta; else NPM_TAG=latest; fi
+          elif [[ "$PRERELEASE" == true && "$NPM_TAG" == latest ]]; then
+            echo "::warning::$VERSION is a pre-release but will be published as 'latest', so a plain install will get it."
+          fi
+
+          if [[ -n "$(npm view "${PACKAGE_NAME}@${VERSION}" version 2> /dev/null)" ]]; then
+            echo "::error::${PACKAGE_NAME}@${VERSION} is already on npm. Choose another version."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" > /dev/null; then
+            echo "::error::Tag v${VERSION} already exists."
+            exit 1
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "npm_tag=$NPM_TAG"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release plan"
+            echo
+            echo "| | |"
+            echo "| :--- | :--- |"
+            echo "| package.json | \`$CURRENT\` |"
+            echo "| Releasing | \`$VERSION\` |"
+            echo "| npm dist-tag | \`$NPM_TAG\` |"
+            echo "| Pre-release | $PRERELEASE |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    name: Checks
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    name: Build release tarball
+    needs: [validate, checks]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      NPM_TAG: ${{ needs.validate.outputs.npm_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Set version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      # `npm pack` runs the `prepare` script, so this is a fresh `bob build`.
+      - name: Build and pack
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+
+      - name: Verify tarball
+        run: node scripts/verify-package.mjs "dist/${PACKAGE_NAME}-${VERSION}.tgz" --version "$VERSION"
+
+      - name: Dry-run publish
+        run: npm publish "dist/${PACKAGE_NAME}-${VERSION}.tgz" --dry-run --tag "$NPM_TAG" --access public
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-package
+          path: dist/${{ env.PACKAGE_NAME }}-${{ env.VERSION }}.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Waiting for approval
+        run: |
+          {
+            echo
+            echo "All checks passed and \`${PACKAGE_NAME}@${VERSION}\` is packed."
+            echo "Approve the **publish** job (environment \`npm\`) to release it with the \`${NPM_TAG}\` tag."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish
+    needs: [validate, package]
+    runs-on: ubuntu-latest
+    # A required reviewer on this environment turns this job into the
+    # "publish this version?" prompt.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/${{ env.PACKAGE_NAME }}/v/${{ needs.validate.outputs.version }}
+    permissions:
+      contents: write # commit the version, push the tag, create the release
+      id-token: write # npm trusted publishing and provenance
+      packages: write # GitHub Packages
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      NPM_TAG: ${{ needs.validate.outputs.npm_tag }}
+      PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing (no long-lived token) needs npm 11.5.1 or newer.
+      - name: Check npm version
+        run: |
+          if ! node -e "const [a,b,c]=process.argv[1].split('.').map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)" "$(npm -v)"; then
+            npm install -g npm@11
+          fi
+          npm -v
+
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-package
+          path: dist
+
+      # Uses npm trusted publishing when it is configured for this workflow,
+      # and falls back to the NPM_TOKEN secret otherwise. Skipped on a re-run
+      # after the version is already up, so a later step can be retried.
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ -n "$(npm view "${PACKAGE_NAME}@${VERSION}" version 2> /dev/null)" ]]; then
+            echo "::notice::${PACKAGE_NAME}@${VERSION} is already on npm, skipping."
+          else
+            npm publish "dist/${PACKAGE_NAME}-${VERSION}.tgz" --tag "$NPM_TAG" --access public --provenance
+          fi
+
+      - name: Commit version and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          if ! git diff --quiet; then
+            git commit -am "chore: release ${VERSION}"
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" > /dev/null; then
+            echo "::notice::Tag v${VERSION} already exists, skipping."
+          else
+            git tag -a "v${VERSION}" -m "v${VERSION}"
+            git push origin "v${VERSION}"
+          fi
+
+          # The tag always points at the commit that was tested. If main moved
+          # on while the release waited for approval, main is left alone.
+          if ! git push origin HEAD:main; then
+            echo "::warning::main moved on during the release. Set package.json to ${VERSION} on main by hand."
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${VERSION}" > /dev/null 2>&1; then
+            echo "::notice::Release v${VERSION} already exists, skipping."
+          else
+            FLAGS=()
+            if [[ "$PRERELEASE" == true ]]; then FLAGS+=(--prerelease); fi
+            gh release create "v${VERSION}" "dist/${PACKAGE_NAME}-${VERSION}.tgz" \
+              --title "v${VERSION}" --generate-notes --verify-tag "${FLAGS[@]}"
+          fi
+
+      # GitHub Packages only hosts packages scoped to the owner, so the same
+      # tarball is republished there as @iplustsolution/react-native-next-image.
+      - name: Publish to GitHub Packages
+        if: inputs.github_packages
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -n "$(npm view "${GITHUB_PACKAGE_NAME}@${VERSION}" version --registry https://npm.pkg.github.com 2> /dev/null)" ]]; then
+            echo "::notice::${GITHUB_PACKAGE_NAME}@${VERSION} is already on GitHub Packages, skipping."
+            exit 0
+          fi
+
+          WORK=$(mktemp -d)
+          tar -xzf "dist/${PACKAGE_NAME}-${VERSION}.tgz" -C "$WORK"
+          cd "$WORK/package"
+          npm pkg set name="$GITHUB_PACKAGE_NAME" publishConfig.registry=https://npm.pkg.github.com
+          npm pkg delete scripts.prepare
+
+          echo "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}" > "$WORK/.npmrc"
+          NPM_CONFIG_USERCONFIG="$WORK/.npmrc" npm publish --ignore-scripts \
+            --registry https://npm.pkg.github.com --tag "$NPM_TAG"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Released ${PACKAGE_NAME}@${VERSION}"
+            echo
+            echo "- npm: https://www.npmjs.com/package/${PACKAGE_NAME}/v/${VERSION} (\`${NPM_TAG}\`)"
+            echo "- GitHub release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}"
+            if [[ "${{ inputs.github_packages }}" == true ]]; then
+              echo "- GitHub Packages: \`${GITHUB_PACKAGE_NAME}@${VERSION}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

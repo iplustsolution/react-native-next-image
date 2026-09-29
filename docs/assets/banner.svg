@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="506" viewBox="0 0 1300 506" role="img" aria-labelledby="t d">
+  <title id="t">React Native Next Image</title>
+  <desc id="d">react-native-next-image: fast, cache-first image loading for React Native. Downloads a URL once and renders it from memory or disk after that. Coil 3 on Android, Kingfisher 8 on iOS, New Architecture.</desc>
+  <defs>
+  <filter id="sh" x="-15%" y="-15%" width="130%" height="160%">
+    <feDropShadow dx="0" dy="10" stdDeviation="9" flood-color="#000" flood-opacity="0.30"/>
+    <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity="0.22"/>
+  </filter>
+  <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#103322"/><stop offset="1" stop-color="#05150C"/>
+  </linearGradient>
+  <linearGradient id="faceA" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#134A2C"/><stop offset="1" stop-color="#061C10"/>
+  </linearGradient>
+  <linearGradient id="slab" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0B5A2E"/><stop offset="1" stop-color="#03200F"/>
+  </linearGradient>
+  <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#C9FFE0" stop-opacity="0.38"/>
+    <stop offset="0.3" stop-color="#C9FFE0" stop-opacity="0.07"/>
+    <stop offset="1" stop-color="#C9FFE0" stop-opacity="0.02"/>
+  </linearGradient>
+  <radialGradient id="sheen" cx="0.18" cy="0" r="0.95">
+    <stop offset="0" stop-color="#22E07D" stop-opacity="0.18"/>
+    <stop offset="1" stop-color="#22E07D" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+    <stop offset="0" stop-color="#22DB73"/><stop offset="1" stop-color="#00822F"/>
+  </linearGradient>
+  <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.5"/>
+    <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="num" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#F0FFF5"/><stop offset="1" stop-color="#22E07D"/>
+  </linearGradient>
+  <linearGradient id="logoFg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#E6FFEE"/><stop offset="1" stop-color="#82E7B0"/>
+  </linearGradient>
+  </defs>
+  <style>
+    .s { font-family: 'Segoe UI', Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    .m { font-family: 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace; }
+  </style>
+<g transform="translate(10 4)">
+<g filter="url(#sh)"><rect x="16" y="19" width="1248" height="440" rx="30" fill="url(#slab)"/><rect x="16" y="12" width="1248" height="440" rx="30" fill="url(#faceA)"/></g>
+<rect x="16" y="12" width="1248" height="440" rx="30" fill="url(#sheen)"/>
+<rect x="16.75" y="12.75" width="1246.5" height="438.5" rx="29.25" fill="none" stroke="url(#edge)" stroke-width="1.5"/>
+<g transform="translate(58 52) scale(0.9615)"><rect y="4" width="52" height="52" rx="12" fill="#004F1C"/><rect width="52" height="52" rx="12" fill="url(#tile)"/><rect x="1.5" y="1.5" width="49" height="49" rx="10.5" fill="none" stroke="#9BF7C4" stroke-opacity="0.7"/><g fill="url(#logoFg)" stroke="#006621" stroke-opacity="0.35" stroke-width="0.8"><circle cx="11" cy="12.4" r="3.4"/><rect x="7.9" y="18.8" width="6" height="23.4" rx="2"/><rect x="19.4" y="9.2" width="27" height="6.6" rx="2"/><rect x="29.5" y="9.2" width="7.4" height="33" rx="2"/></g></g>
+<text class="m" x="124" y="84" font-size="13" letter-spacing="2" fill="#4ADE80">OPEN SOURCE · MIT · NEW ARCHITECTURE</text>
+<text class="s" x="56" y="170" font-size="58" font-weight="800" letter-spacing="-1.5" fill="#F3FFF7">React Native</text>
+<text class="s" x="56" y="232" font-size="58" font-weight="800" letter-spacing="-1.5" fill="url(#num)">Next Image</text>
+<text class="s" x="58" y="278" font-size="22" fill="#CFE8D9">Download a URL once. Render it from cache after that.</text>
+<rect x="58.0" y="302" width="76.4" height="32" rx="9" fill="#0BBF64" fill-opacity="0.16"/><text class="s" x="96.2" y="323.4" text-anchor="middle" font-size="15" font-weight="600" fill="#9AF5C3">Coil 3</text>
+<rect x="144.4" y="302" width="126.8" height="32" rx="9" fill="#0BBF64" fill-opacity="0.16"/><text class="s" x="207.8" y="323.4" text-anchor="middle" font-size="15" font-weight="600" fill="#9AF5C3">Kingfisher 8</text>
+<rect x="281.2" y="302" width="76.4" height="32" rx="9" fill="#0BBF64" fill-opacity="0.16"/><text class="s" x="319.4" y="323.4" text-anchor="middle" font-size="15" font-weight="600" fill="#9AF5C3">Fabric</text>
+<rect x="367.6" y="302" width="126.8" height="32" rx="9" fill="#0BBF64" fill-opacity="0.16"/><text class="s" x="431.0" y="323.4" text-anchor="middle" font-size="15" font-weight="600" fill="#9AF5C3">Turbo Module</text>
+<rect x="504.4" y="302" width="110.0" height="32" rx="9" fill="#0BBF64" fill-opacity="0.16"/><text class="s" x="559.4" y="323.4" text-anchor="middle" font-size="15" font-weight="600" fill="#9AF5C3">TypeScript</text>
+<rect x="58" y="356" width="440" height="52" rx="12" fill="#020A06" fill-opacity="0.85"/><rect x="58.5" y="356.5" width="439" height="51" rx="11.5" fill="none" stroke="#1D4A30"/><text class="m" x="80" y="388" font-size="16" fill="#9BBFAA"><tspan fill="#4ADE80">$</tspan> yarn add <tspan fill="#F3FFF7">react-native-next-image</tspan></text>
+<g filter="url(#sh)"><rect x="770" y="48" width="236" height="392" rx="40" fill="#021A0C"/><rect x="770" y="40" width="236" height="392" rx="40" fill="#0B2A1A"/></g><rect x="770.75" y="40.75" width="234.5" height="390.5" rx="39" fill="none" stroke="url(#edge)" stroke-width="1.5"/><rect x="780" y="50" width="216" height="372" rx="31" fill="#03100A"/><rect x="854.0" y="60" width="68" height="18" rx="9" fill="#000"/>
+<text class="s" x="796" y="106" font-size="17" font-weight="800" fill="#F3FFF7">Gallery</text>
+<text class="m" x="980" y="106" text-anchor="end" font-size="10" letter-spacing="1" fill="#6FA487">CACHED</text>
+<defs><clipPath id="ph0_788_122"><rect x="788" y="122" width="94" height="88" rx="12"/></clipPath><linearGradient id="ph0_788_122g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1ED66E"/><stop offset="1" stop-color="#0A6B35"/></linearGradient></defs><g clip-path="url(#ph0_788_122)"><rect x="788" y="122" width="94" height="88" fill="url(#ph0_788_122g)"/><circle cx="855.68" cy="148.4" r="9.4" fill="#F0FFF5" opacity="0.85"/><path d="M788 190.64 L818.08 164.24 L839.7 183.6 L855.68 171.28 L882 192.4 V210 H788 Z" fill="#03351A" opacity="0.55"/><path d="M788 201.2 L825.6 180.08 L882 202.96 V210 H788 Z" fill="#021F0F" opacity="0.6"/></g><rect x="788.5" y="122.5" width="93" height="87" rx="12" fill="none" stroke="#C9FFE0" stroke-opacity="0.25"/>
+<defs><clipPath id="ph1_894_122"><rect x="894" y="122" width="94" height="88" rx="12"/></clipPath><linearGradient id="ph1_894_122g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#26F2D6"/><stop offset="1" stop-color="#0B7A6B"/></linearGradient></defs><g clip-path="url(#ph1_894_122)"><rect x="894" y="122" width="94" height="88" fill="url(#ph1_894_122g)"/><circle cx="961.68" cy="148.4" r="9.4" fill="#F0FFF5" opacity="0.85"/><path d="M894 190.64 L924.08 164.24 L945.7 183.6 L961.68 171.28 L988 192.4 V210 H894 Z" fill="#03351A" opacity="0.55"/><path d="M894 201.2 L931.6 180.08 L988 202.96 V210 H894 Z" fill="#021F0F" opacity="0.6"/></g><rect x="894.5" y="122.5" width="93" height="87" rx="12" fill="none" stroke="#C9FFE0" stroke-opacity="0.25"/>
+<defs><clipPath id="ph2_788_222"><rect x="788" y="222" width="94" height="88" rx="12"/></clipPath><linearGradient id="ph2_788_222g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#86EFAC"/><stop offset="1" stop-color="#15803D"/></linearGradient></defs><g clip-path="url(#ph2_788_222)"><rect x="788" y="222" width="94" height="88" fill="url(#ph2_788_222g)"/><circle cx="855.68" cy="248.4" r="9.4" fill="#F0FFF5" opacity="0.85"/><path d="M788 290.64 L818.08 264.24 L839.7 283.6 L855.68 271.28 L882 292.4 V310 H788 Z" fill="#03351A" opacity="0.55"/><path d="M788 301.2 L825.6 280.08 L882 302.96000000000004 V310 H788 Z" fill="#021F0F" opacity="0.6"/></g><rect x="788.5" y="222.5" width="93" height="87" rx="12" fill="none" stroke="#C9FFE0" stroke-opacity="0.25"/>
+<defs><clipPath id="ph3_894_222"><rect x="894" y="222" width="94" height="88" rx="12"/></clipPath><linearGradient id="ph3_894_222g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4ADE80"/><stop offset="1" stop-color="#065F46"/></linearGradient></defs><g clip-path="url(#ph3_894_222)"><rect x="894" y="222" width="94" height="88" fill="url(#ph3_894_222g)"/><circle cx="961.68" cy="248.4" r="9.4" fill="#F0FFF5" opacity="0.85"/><path d="M894 290.64 L924.08 264.24 L945.7 283.6 L961.68 271.28 L988 292.4 V310 H894 Z" fill="#03351A" opacity="0.55"/><path d="M894 301.2 L931.6 280.08 L988 302.96000000000004 V310 H894 Z" fill="#021F0F" opacity="0.6"/></g><rect x="894.5" y="222.5" width="93" height="87" rx="12" fill="none" stroke="#C9FFE0" stroke-opacity="0.25"/>
+<defs><clipPath id="ph4_788_322"><rect x="788" y="322" width="94" height="88" rx="12"/></clipPath><linearGradient id="ph4_788_322g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1ED66E"/><stop offset="1" stop-color="#0A6B35"/></linearGradient></defs><g clip-path="url(#ph4_788_322)"><rect x="788" y="322" width="94" height="88" fill="url(#ph4_788_322g)"/><circle cx="855.68" cy="348.4" r="9.4" fill="#F0FFF5" opacity="0.85"/><path d="M788 390.64 L818.08 364.24 L839.7 383.6 L855.68 371.28 L882 392.4 V410 H788 Z" fill="#03351A" opacity="0.55"/><path d="M788 401.2 L825.6 380.08 L882 402.96000000000004 V410 H788 Z" fill="#021F0F" opacity="0.6"/></g><rect x="788.5" y="322.5" width="93" height="87" rx="12" fill="none" stroke="#C9FFE0" stroke-opacity="0.25"/>
+<rect x="894" y="322" width="94" height="88" rx="12" fill="#0B2A1A"/><rect x="908" y="388" width="66" height="6" rx="3" fill="#12301F"/><rect x="908" y="388" width="41" height="6" rx="3" fill="#22E07D"/><g transform="translate(929.0 340)" fill="none" stroke="#4ADE80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v12M7 10.5l5 5 5-5M4.5 20h15"/></g>
+<rect x="794" y="128" width="53.6" height="18" rx="6" fill="#03100A" fill-opacity="0.82"/><text class="m" x="820.8" y="140.5" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="1" fill="#86EFAC">MEMORY</text>
+<rect x="900" y="228" width="40.4" height="18" rx="6" fill="#03100A" fill-opacity="0.82"/><text class="m" x="920.2" y="240.5" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="1" fill="#86EFAC">DISK</text>
+<rect x="794" y="328" width="53.6" height="18" rx="6" fill="#03100A" fill-opacity="0.82"/><text class="m" x="820.8" y="340.5" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="1" fill="#86EFAC">MEMORY</text>
+<g filter="url(#sh)"><rect x="1036" y="69" width="196" height="84" rx="18" fill="url(#slab)"/><rect x="1036" y="62" width="196" height="84" rx="18" fill="url(#faceA)"/></g>
+<rect x="1036" y="62" width="196" height="84" rx="18" fill="url(#sheen)"/>
+<rect x="1036.75" y="62.75" width="194.5" height="82.5" rx="17.25" fill="none" stroke="url(#edge)" stroke-width="1.5"/>
+<g transform="translate(1050 78)"><rect y="3.8" width="48" height="48" rx="14.0" fill="#004F1C"/><rect width="48" height="48" rx="14.0" fill="url(#tile)"/><rect x="3.4" y="1.9" width="41.3" height="23.0" rx="11.2" fill="url(#gloss)" opacity="0.55"/><rect x=".75" y=".75" width="46.5" height="46.5" rx="13.2" fill="none" stroke="#9BF7C4" stroke-opacity="0.6" stroke-width="1.5"/><g transform="translate(11.52 11.52) scale(1.0400)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0 1)" color="#00561F" opacity="0.75"><path d="M13 2.5L4.5 13.5H12l-1 8 8.5-11H12z"/></g><g color="#F2FFF7"><path d="M13 2.5L4.5 13.5H12l-1 8 8.5-11H12z"/></g></g></g>
+<text class="s" x="1112" y="100" font-size="18" font-weight="800" fill="#F3FFF7">Memory</text>
+<text class="m" x="1112" y="122" font-size="11" fill="#6FA487">No I/O</text>
+<path d="M1134.0 156 v20" stroke="#2F6B48" stroke-width="2" stroke-dasharray="3 4"/><text class="m" x="1144.0" y="171" font-size="10" letter-spacing="1" fill="#6FA487">MISS</text>
+<g filter="url(#sh)"><rect x="1036" y="195" width="196" height="84" rx="18" fill="url(#slab)"/><rect x="1036" y="188" width="196" height="84" rx="18" fill="url(#face)"/></g>
+<rect x="1036" y="188" width="196" height="84" rx="18" fill="url(#sheen)"/>
+<rect x="1036.75" y="188.75" width="194.5" height="82.5" rx="17.25" fill="none" stroke="url(#edge)" stroke-width="1.5"/>
+<g transform="translate(1050 204)"><rect y="3.8" width="48" height="48" rx="14.0" fill="#004F1C"/><rect width="48" height="48" rx="14.0" fill="url(#tile)"/><rect x="3.4" y="1.9" width="41.3" height="23.0" rx="11.2" fill="url(#gloss)" opacity="0.55"/><rect x=".75" y=".75" width="46.5" height="46.5" rx="13.2" fill="none" stroke="#9BF7C4" stroke-opacity="0.6" stroke-width="1.5"/><g transform="translate(11.52 11.52) scale(1.0400)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0 1)" color="#00561F" opacity="0.75"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></g><g color="#F2FFF7"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></g></g></g>
+<text class="s" x="1112" y="226" font-size="18" font-weight="800" fill="#F3FFF7">Disk</text>
+<text class="m" x="1112" y="248" font-size="11" fill="#6FA487">Offline, restarts</text>
+<path d="M1134.0 282 v20" stroke="#2F6B48" stroke-width="2" stroke-dasharray="3 4"/><text class="m" x="1144.0" y="297" font-size="10" letter-spacing="1" fill="#6FA487">MISS</text>
+<g filter="url(#sh)"><rect x="1036" y="321" width="196" height="84" rx="18" fill="url(#slab)"/><rect x="1036" y="314" width="196" height="84" rx="18" fill="url(#face)"/></g>
+<rect x="1036" y="314" width="196" height="84" rx="18" fill="url(#sheen)"/>
+<rect x="1036.75" y="314.75" width="194.5" height="82.5" rx="17.25" fill="none" stroke="url(#edge)" stroke-width="1.5"/>
+<g transform="translate(1050 330)"><rect y="3.8" width="48" height="48" rx="14.0" fill="#004F1C"/><rect width="48" height="48" rx="14.0" fill="url(#tile)"/><rect x="3.4" y="1.9" width="41.3" height="23.0" rx="11.2" fill="url(#gloss)" opacity="0.55"/><rect x=".75" y=".75" width="46.5" height="46.5" rx="13.2" fill="none" stroke="#9BF7C4" stroke-opacity="0.6" stroke-width="1.5"/><g transform="translate(11.52 11.52) scale(1.0400)" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0 1)" color="#00561F" opacity="0.75"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.6 3.9 5.6 3.9 9s-1.3 6.4-3.9 9c-2.6-2.6-3.9-5.6-3.9-9S9.4 5.6 12 3z"/></g><g color="#F2FFF7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.6 3.9 5.6 3.9 9s-1.3 6.4-3.9 9c-2.6-2.6-3.9-5.6-3.9-9S9.4 5.6 12 3z"/></g></g></g>
+<text class="s" x="1112" y="352" font-size="18" font-weight="800" fill="#F3FFF7">Network</text>
+<text class="m" x="1112" y="374" font-size="11" fill="#6FA487">Only on a miss</text>
+</g>
+</svg>

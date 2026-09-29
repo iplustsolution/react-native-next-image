@@ -104,13 +104,44 @@ Our pre-commit hooks verify that your commit message matches this format when co
 
 ### Publishing to npm
 
-We use [release-it](https://github.com/release-it/release-it) to make it easier to publish new versions. It handles common tasks like bumping version based on semver, creating tags and releases etc.
+Releases are published from GitHub Actions, never from a laptop, so every
+version on npm was built and tested by CI and carries an npm provenance
+statement.
 
-To publish new versions, run the following:
+1. Open **Actions → Release → Run workflow** on `main`.
+2. Pick the version: `patch`, `minor`, `major`, `prepatch`, `preminor`,
+   `premajor`, `prerelease` (bumps from `package.json`, pre-releases use the
+   `beta` id), or an exact version such as `0.1.0` or `0.1.0-beta.1`.
+3. Pick the npm dist-tag. `auto` publishes pre-releases as `beta` and
+   everything else as `latest`.
 
-```sh
-yarn release
-```
+The workflow then:
+
+| Job | What it does |
+| :--- | :--- |
+| Resolve version | Refuses to run off `main`, and refuses a version that is already on npm or already tagged. |
+| Checks | Runs all of [`ci.yml`](./.github/workflows/ci.yml): lint, types, Jest, Kotlin and Swift tests, the library build, the tarball check, and the example app on Android, iOS and web. |
+| Build release tarball | Sets the version, builds, packs, checks the tarball with [`scripts/verify-package.mjs`](./scripts/verify-package.mjs) and does a dry-run publish. |
+| Publish | **Waits for approval.** Once approved, publishes that same tarball to npm with provenance, commits the version to `main`, pushes the `v<version>` tag, creates a GitHub release with generated notes, and publishes `@iplustsolution/react-native-next-image` to GitHub Packages. |
+
+The run's summary page shows the version, dist-tag and tarball size before you
+approve. A failed publish can be re-run; steps that already happened are skipped.
+
+#### One-time setup
+
+- **Approval gate.** Settings → Environments → New environment named `npm`.
+  Under *Deployment protection rules*, tick **Required reviewers** and add the
+  people allowed to release. Optionally restrict *Deployment branches* to `main`.
+- **npm access**, either:
+  - **Trusted publishing** (recommended, no secret to rotate): on npmjs.com,
+    open the package → Settings → Trusted Publisher → GitHub Actions, with
+    organization `iplustsolution`, repository `react-native-next-image`,
+    workflow `release.yml` and environment `npm`; or
+  - a **granular access token** with read and write access to this package,
+    saved as the `NPM_TOKEN` secret of the `npm` environment.
+- **Pushing the version commit.** If `main` is protected, allow
+  `github-actions[bot]` to push to it; otherwise the workflow tags and
+  publishes but leaves `package.json` on `main` for you to bump.
 
 
 ### Scripts

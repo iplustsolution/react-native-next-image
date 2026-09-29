@@ -76,7 +76,8 @@
   },
   "homepage": "https://github.com/iplustsolution/react-native-next-image#readme",
   "publishConfig": {
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "devDependencies": {
     "@commitlint/config-conventional": "^21.0.2",
@@ -160,7 +161,7 @@
       "customExportConditions": [
         "require",
         "react-native",
-        "<%- project.sourceCondition -%>"
+        "react-native-next-image-source"
       ]
     },
     "modulePathIgnorePatterns": [

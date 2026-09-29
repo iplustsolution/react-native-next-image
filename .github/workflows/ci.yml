@@ -9,10 +9,15 @@ on:
   merge_group:
     types:
       - checks_requested
+  # The release workflow runs this whole file as its gate before publishing.
+  workflow_call:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-ci-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   lint:
@@ -111,6 +116,14 @@ jobs:
       - name: Build package
         run: yarn prepare
 
+      # Packs exactly what `npm publish` would upload and checks it: every
+      # entry point is inside, native sources are there, no tests or example.
+      - name: Pack and verify tarball
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+          node scripts/verify-package.mjs dist/*.tgz
+
   build-android:
     runs-on: ubuntu-latest
 
@@ -137,7 +150,7 @@ jobs:
           TURBO_CACHE_STATUS=$(node -p "($(yarn turbo run build:android --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'build:android').cache.status")
 
           if [[ $TURBO_CACHE_STATUS == "HIT" ]]; then
-            echo "turbo_cache_hit=1" >> $GITHUB_ENV
+            echo "turbo_cache_hit=1" >> "$GITHUB_ENV"
           fi
 
       - name: Install JDK
@@ -199,7 +212,7 @@ jobs:
           TURBO_CACHE_STATUS=$(node -p "($(yarn turbo run build:ios --cache-dir="${{ env.TURBO_CACHE_DIR }}" --dry=json)).tasks.find(t => t.task === 'build:ios').cache.status")
 
           if [[ $TURBO_CACHE_STATUS == "HIT" ]]; then
-            echo "turbo_cache_hit=1" >> $GITHUB_ENV
+            echo "turbo_cache_hit=1" >> "$GITHUB_ENV"
           fi
 
       - name: Use appropriate Xcode version

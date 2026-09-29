@@ -1,43 +1,32 @@
-<div align="center">
+<a href="https://www.npmjs.com/package/react-native-next-image"><img src="https://raw.githubusercontent.com/iplustsolution/react-native-next-image/main/docs/assets/banner.svg" alt="React Native Next Image: fast, cache-first image loading for React Native, built on Coil 3 and Kingfisher 8" width="100%"></a>
 
-<img src="https://www.iplust.in/logo.png" alt="react-native-next-image logo" width="120" />
+<p align="center">
+  <a href="https://www.npmjs.com/package/react-native-next-image"><img src="https://img.shields.io/npm/v/react-native-next-image?style=flat-square&color=0BBF64&label=npm" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/react-native-next-image"><img src="https://img.shields.io/npm/dm/react-native-next-image?style=flat-square&color=0BBF64" alt="npm downloads"></a>
+  <a href="https://github.com/iplustsolution/react-native-next-image/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/iplustsolution/react-native-next-image/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/platforms-iOS%20%7C%20Android%20%7C%20Web-0BBF64?style=flat-square" alt="Platforms: iOS, Android and web">
+  <img src="https://img.shields.io/badge/New%20Architecture-ready-0BBF64?style=flat-square" alt="New Architecture ready">
+  <a href="https://github.com/iplustsolution/react-native-next-image/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/react-native-next-image?style=flat-square&color=0BBF64" alt="MIT license"></a>
+</p>
 
-# react-native-next-image
+**react-native-next-image** is a fast, cache-first image component for React Native. It downloads a URL once and renders it from memory or disk after that, even offline and across app restarts. It is built for the New Architecture (Fabric and Turbo Modules), uses **Coil 3** on Android and **Kingfisher 8** on iOS, and is a modern alternative to `react-native-fast-image`.
 
-**Image loading for React Native that downloads a URL once and renders it from cache after that.**
-
-Built for the New Architecture. Powered by **Coil 3** on Android and **Kingfisher 8** on iOS.
-
-[![npm version](https://img.shields.io/npm/v/react-native-next-image.svg?color=6366f1&label=npm)](https://www.npmjs.com/package/react-native-next-image)
-[![npm downloads](https://img.shields.io/npm/dm/react-native-next-image.svg?color=6366f1)](https://www.npmjs.com/package/react-native-next-image)
-[![platforms](https://img.shields.io/badge/platform-iOS%20%7C%20Android-6366f1.svg)](#)
-[![license](https://img.shields.io/npm/l/react-native-next-image.svg?color=6366f1)](./LICENSE)
-
-</div>
-
----
-
-## ⚠️ Status: pre-1.0
+<img src="https://raw.githubusercontent.com/iplustsolution/react-native-next-image/main/docs/assets/highlights.svg" alt="One download per URL per cache lifetime, two cache tiers, 228 automated tests, security checks in JS and native" width="100%">
 
 > [!CAUTION]
-> The API is still settling. Pin an exact version, read the release notes
-> before upgrading, and test on both platforms before shipping.
+> **Pre-1.0.** The API is still settling. Pin an exact version, read the release notes before upgrading, and test on both platforms before shipping.
 
----
+**Contents:** [Why](#why) · [Install](#installation) · [Usage](#usage) · [Caching](#how-the-cache-works) · [Prefetching](#prefetchthreshold-and-what-400-means) · [Security](#security) · [API](#api) · [Platform notes](#platform-notes) · [Performance](#performance-notes) · [Example app](#example-app) · [Testing](#testing)
 
 ## Why
 
-`<Image>` re-requests images more often than you would like, gives you no say
-over how long one stays cached, and cannot tell you where a render came from.
-`NextImage` fixes that with one rule:
+`<Image>` re-requests images more often than you would like, gives you no say over how long one stays cached, and cannot tell you where a render came from. `NextImage` fixes that with one rule:
 
-**A URL is fetched from the network at most once per cache lifetime. Every
-render after that comes from memory or disk, even offline, even across app
-restarts.**
+**A URL is fetched from the network at most once per cache lifetime. Every render after that comes from memory or disk, even offline, even across app restarts.**
 
 Everything else in this library exists to support that rule.
 
----
+<img src="https://raw.githubusercontent.com/iplustsolution/react-native-next-image/main/docs/assets/features.svg" alt="Features: cache-first loading, viewport-aware prefetch, secure by default, New Architecture native, effects and transitions, observable and in control" width="100%">
 
 ## Requirements
 
@@ -85,9 +74,9 @@ cd ios && pod install
 Without the helper, the build fails with
 `underlying Objective-C module 'Kingfisher' not found` and, on Xcode 27, with
 `The iOS Simulator deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to 13.0`.
-[`scripts/next_image_pods.rb`](./scripts/next_image_pods.rb) explains both.
+[`scripts/next_image_pods.rb`](https://github.com/iplustsolution/react-native-next-image/blob/main/scripts/next_image_pods.rb) explains both.
 The helper is harmless under `use_frameworks!`, and the example app in
-[`example/ios/Podfile`](./example/ios/Podfile) is built with it on every commit.
+[`example/ios/Podfile`](https://github.com/iplustsolution/react-native-next-image/blob/main/example/ios/Podfile) is built with it on every commit.
 
 ### Android
 
@@ -130,6 +119,8 @@ policy because they never came from user input.
 ---
 
 ## How the cache works
+
+<img src="https://raw.githubusercontent.com/iplustsolution/react-native-next-image/main/docs/assets/cache-flow.svg" alt="Every request checks memory, then disk, then the network, and stops at the first hit" width="100%">
 
 Two tiers, shared by every `NextImage` in the app and by the preload APIs.
 
@@ -208,6 +199,8 @@ stable `cacheKey` instead:
 ---
 
 ## `prefetchThreshold`, and what "400%" means
+
+<img src="https://raw.githubusercontent.com/iplustsolution/react-native-next-image/main/docs/assets/prefetch.svg" alt="With prefetchThreshold 4, images within four screens of the viewport download and the rest wait" width="100%">
 
 `prefetchThreshold` is a multiple of the **screen size**. It sets how far
 outside the viewport an image may be and still be allowed to download.
@@ -553,48 +546,9 @@ on the new loader, so nothing is lost, but the memory cache starts empty.
 
 ---
 
-## Release notes
-
-### 0.0.7
-
-**Added**
-
-- `nativeComponent` and `nativeViewProps`, and the `NextImageNativeView`
-  export, so an app can render the native view through its own wrapper, for
-  example to put a Reanimated `sharedTransitionTag` on the image itself. See
-  [Shared element transitions](#shared-element-transitions). Nothing changes
-  when they are not used.
-
-**Fixed**
-
-- iOS: the load is now committed in `finalizeUpdates`, after the layout
-  metrics, instead of at the end of `updateProps`. A recycled view no longer
-  starts a request sized for the component it was recycled from, and a new
-  view (including the copy a shared element transition mounts) shows a memory
-  cache hit in its first frame.
-- iOS: cancelling a load now invalidates a result Kingfisher had already
-  queued. Previously a recycled view could briefly show, and report through
-  `onLoad`, the previous owner's image or placeholder.
-- iOS: `cover` and `stretch` images are decoded large enough to cover the view.
-  Kingfisher's downsampler bounds only the longest side, so a photo whose
-  aspect ratio differed from the view's was decoded too small and looked soft.
-- iOS: a host matched by several `certificatePins` patterns accepts a pin from
-  any of them, as on Android. It used to pick one pattern in dictionary order.
-- Android: `.example.com` and `*.example.com` pin hosts are translated for
-  OkHttp. `.example.com` made building the HTTP client throw, and
-  `*.example.com` did not cover the domain itself or deeper subdomains as it
-  does on iOS. `configure` now rejects pin hosts neither platform can apply,
-  such as `*`.
-- Android: a retry waiting for its backoff is no longer dropped when the view
-  is detached (a clipped list row, a covered screen); the image used to stay
-  on its placeholder for good.
-- Both: `slide`, `scale` and `gravity` no longer animate a memory cache hit,
-  matching `fade`, and a recycled or dropped view stops any running
-  transition animation.
-
 ## Example app
 
-[`example/`](./example) is a React Native 0.85 app with one screen per feature:
+[`example/`](https://github.com/iplustsolution/react-native-next-image/tree/main/example) is a React Native 0.85 app with one screen per feature:
 a cached gallery with live memory/disk/network counters, transitions and resize
 modes, effects, every cache API, error and security cases, bundled assets and
 `data:` sources, download progress, and custom headers. All demo images come
@@ -621,8 +575,13 @@ yarn test:android                # 44 JUnit tests: security, config, request par
 ```
 
 Everything above runs on every push and pull request via
-[`.github/workflows/ci.yml`](./.github/workflows/ci.yml), together with builds of
-the example app for Android, iOS and web.
+[`.github/workflows/ci.yml`](https://github.com/iplustsolution/react-native-next-image/blob/main/.github/workflows/ci.yml), together with builds of
+the example app for Android, iOS and web and a check of the packed npm tarball.
+
+Releases go through [`.github/workflows/release.yml`](https://github.com/iplustsolution/react-native-next-image/blob/main/.github/workflows/release.yml):
+the same checks run again, the tarball is built once, and it is published to npm
+with provenance only after a maintainer approves it. See
+[CONTRIBUTING.md](https://github.com/iplustsolution/react-native-next-image/blob/main/CONTRIBUTING.md#publishing-to-npm).
 
 ---
 
@@ -642,11 +601,19 @@ the example app for Android, iOS and web.
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) to
+Contributions are welcome. Please read [CONTRIBUTING.md](https://github.com/iplustsolution/react-native-next-image/blob/main/CONTRIBUTING.md) to
 get started.
+
+---
+
+## Release notes
+
+See the [GitHub releases](https://github.com/iplustsolution/react-native-next-image/releases) and [CHANGELOG.md](https://github.com/iplustsolution/react-native-next-image/blob/main/CHANGELOG.md).
 
 ---
 
 ## License
 
-[MIT](./LICENSE) © [I Plus T Solution](https://github.com/iplustsolution)
+[MIT](https://github.com/iplustsolution/react-native-next-image/blob/main/LICENSE) © [I Plus T Solution](https://github.com/iplustsolution)
+
+<a href="https://www.iplust.in/"><img src="https://raw.githubusercontent.com/iplustsolution/react-native-next-image/main/docs/assets/built-by.svg" alt="Built and maintained by I Plus T Solution: AI agents, Rust backends and React Native apps" width="100%"></a>
