@@ -1,6 +1,6 @@
 {
   "name": "react-native-next-image",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fast, cache-first image component for React Native. Downloads a URL once and renders it from memory or disk after that. Coil 3 on Android, Kingfisher on iOS, New Architecture ready.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
