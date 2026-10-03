@@ -31,10 +31,12 @@ data class NextImageConfig(
    * what makes a URL download exactly once.
    */
   val respectServerCacheHeaders: Boolean = false,
+  /** Log each request that reaches the network (Logcat tag `NextImageNet`). */
+  val logNetworkRequests: Boolean = false,
 ) {
   companion object {
     const val DEFAULT_DISK_CACHE_BYTES: Long = 250L * 1024 * 1024
-    const val DEFAULT_CACHE_DURATION_MINUTES: Double = 10080.0
+    const val DEFAULT_CACHE_DURATION_MINUTES: Double = 20160.0
     /** Roughly ten years: what `cache: 'immutable'` means when no duration is given. */
     const val IMMUTABLE_CACHE_DURATION_MINUTES: Double = 5256000.0
     const val MIN_MEMORY_CACHE_BYTES: Long = 1L * 1024 * 1024
@@ -65,6 +67,9 @@ data class NextImageConfig(
       }
       (options["respectServerCacheHeaders"] as? Boolean)?.let {
         next = next.copy(respectServerCacheHeaders = it)
+      }
+      (options["logNetworkRequests"] as? Boolean)?.let {
+        next = next.copy(logNetworkRequests = it)
       }
 
       if (options.containsKey("allowedHosts")) {

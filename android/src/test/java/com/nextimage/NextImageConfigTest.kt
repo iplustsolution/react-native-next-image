@@ -19,7 +19,15 @@ class NextImageConfigTest {
     assertTrue(defaults.blockPrivateNetworks)
     assertNull(defaults.allowedHosts)
     assertFalse(defaults.respectServerCacheHeaders)
+    assertFalse(defaults.logNetworkRequests)
     assertEquals(NextImageConfig.DEFAULT_DISK_CACHE_BYTES, defaults.diskCacheBytes)
+  }
+
+  @Test
+  fun `caches for fourteen days by default and reads the network log flag`() {
+    assertEquals(14.0 * 24 * 60, NextImageConfig.DEFAULT_CACHE_DURATION_MINUTES, 0.0)
+    val config = NextImageConfig.fromMap(mapOf("logNetworkRequests" to true), defaults)
+    assertTrue(config.logNetworkRequests)
   }
 
   @Test

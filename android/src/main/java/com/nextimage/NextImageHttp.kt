@@ -1,5 +1,6 @@
 package com.nextimage
 
+import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import okhttp3.CacheControl
@@ -112,6 +113,38 @@ internal class NextImageCacheControlInterceptor(
       .build()
   }
 }
+
+/**
+ * Logs every image request that leaves the device, with the query string
+ * dropped so signed grants and tokens stay out of the log. Installed as a
+ * network interceptor, so a cache hit never produces a line: one line per URL
+ * is the proof that it was downloaded once.
+ */
+internal class NextImageNetworkLogInterceptor(
+  private val enabled: () -> Boolean,
+) : Interceptor {
+  override fun intercept(chain: Interceptor.Chain): Response {
+    if (!enabled()) return chain.proceed(chain.request())
+    val request = chain.request()
+    val url = request.url.newBuilder().query(null).build().toString()
+    val startedAt = System.nanoTime()
+    return try {
+      chain.proceed(request).also { response ->
+        val tookMs = (System.nanoTime() - startedAt) / 1_000_000
+        Log.i(
+          NETWORK_LOG_TAG,
+          "${request.method} $url -> ${response.code} " +
+            "(${response.body?.contentLength() ?: -1} bytes, ${tookMs}ms)",
+        )
+      }
+    } catch (error: java.io.IOException) {
+      Log.i(NETWORK_LOG_TAG, "${request.method} $url -> failed: ${error.message}")
+      throw error
+    }
+  }
+}
+
+internal const val NETWORK_LOG_TAG = "NextImageNet"
 
 /**
  * Bridges OkHttp's byte counting to the views that asked for progress.

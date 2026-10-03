@@ -31,7 +31,7 @@ type NextImageSource = Readonly<{
   cache?: string;
   /**
    * How long a downloaded image stays valid, in minutes.
-   * Default is 10080 (7 days). Use decimals for sub-minute values.
+   * Default is 20160 (14 days). Use decimals for sub-minute values.
    */
   cacheDuration?: Float;
   /**

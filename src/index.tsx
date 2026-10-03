@@ -635,6 +635,13 @@ export type NextImageConfig = Partial<SecurityConfig> & {
    * an image for `cacheDuration`. Set true to obey `Cache-Control` instead.
    */
   respectServerCacheHeaders?: boolean;
+  /**
+   * Log every image request that actually goes out over the network (Logcat
+   * tag `NextImageNet` on Android, `[NextImageNet]` in the iOS console).
+   * Cache hits never log, so this shows whether a URL is downloaded only once.
+   * Meant for debug builds. Defaults to false.
+   */
+  logNetworkRequests?: boolean;
 };
 
 const SECURITY_KEYS: readonly (keyof SecurityConfig)[] = [
@@ -717,6 +724,9 @@ NextImage.configure = (config: NextImageConfig) => {
       : null),
     ...(config.respectServerCacheHeaders !== undefined
       ? { respectServerCacheHeaders: config.respectServerCacheHeaders }
+      : null),
+    ...(config.logNetworkRequests !== undefined
+      ? { logNetworkRequests: config.logNetworkRequests }
       : null),
   });
 };

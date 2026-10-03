@@ -2,10 +2,14 @@ package com.nextimage
 
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.module.annotations.ReactModule
+import com.facebook.react.uimanager.BackgroundStyleApplicator
+import com.facebook.react.uimanager.LengthPercentage
+import com.facebook.react.uimanager.LengthPercentageType
 import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.ViewManagerDelegate
 import com.facebook.react.uimanager.annotations.ReactProp
+import com.facebook.react.uimanager.style.BorderRadiusProp
 import com.facebook.react.viewmanagers.NextImageViewManagerDelegate
 import com.facebook.react.viewmanagers.NextImageViewManagerInterface
 
@@ -84,6 +88,40 @@ class NextImageViewManager :
   @ReactProp(name = "cornerRadius")
   override fun setCornerRadius(view: NextImageView, value: Float) {
     view.setBorderRadiusDp(value)
+  }
+
+  /**
+   * `style.borderRadius` on the view itself. `BaseViewManager` only logs these
+   * as unsupported, so without them the view ignored its own rounding on
+   * Android while iOS applied it. A shared element transition animates exactly
+   * this view (a copy of it, lifted out of its rounded parent), so the photo
+   * flew square instead of morphing its corners. Applied like React Native's
+   * own `<Image>`: the background is rounded and `onDraw` clips to it.
+   */
+  override fun setBorderRadius(view: NextImageView, borderRadius: Float) {
+    applyBorderRadius(view, BorderRadiusProp.BORDER_RADIUS, borderRadius)
+  }
+
+  override fun setBorderTopLeftRadius(view: NextImageView, borderRadius: Float) {
+    applyBorderRadius(view, BorderRadiusProp.BORDER_TOP_LEFT_RADIUS, borderRadius)
+  }
+
+  override fun setBorderTopRightRadius(view: NextImageView, borderRadius: Float) {
+    applyBorderRadius(view, BorderRadiusProp.BORDER_TOP_RIGHT_RADIUS, borderRadius)
+  }
+
+  override fun setBorderBottomLeftRadius(view: NextImageView, borderRadius: Float) {
+    applyBorderRadius(view, BorderRadiusProp.BORDER_BOTTOM_LEFT_RADIUS, borderRadius)
+  }
+
+  override fun setBorderBottomRightRadius(view: NextImageView, borderRadius: Float) {
+    applyBorderRadius(view, BorderRadiusProp.BORDER_BOTTOM_RIGHT_RADIUS, borderRadius)
+  }
+
+  private fun applyBorderRadius(view: NextImageView, corner: BorderRadiusProp, value: Float) {
+    val radius = if (value.isNaN()) null else LengthPercentage(value, LengthPercentageType.POINT)
+    BackgroundStyleApplicator.setBorderRadius(view, corner, radius)
+    view.invalidate()
   }
 
   @ReactProp(name = "isCircle")

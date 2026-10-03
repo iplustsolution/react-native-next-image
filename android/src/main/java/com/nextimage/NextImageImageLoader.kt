@@ -108,11 +108,13 @@ object NextImageImageLoader {
       .components {
         add(NextImageMemoryTtlInterceptor())
         add(
-          OkHttpNetworkFetcherFactory(
-            callFactory = { httpClient },
-            // Honour the Cache-Control headers the interceptor writes, so a
-            // stored entry expires after exactly `cacheDuration`.
-            cacheStrategy = { CacheControlCacheStrategy() },
+          NextImageDedupFetcherFactory(
+            OkHttpNetworkFetcherFactory(
+              callFactory = { httpClient },
+              // Honour the Cache-Control headers the interceptor writes, so a
+              // stored entry expires after exactly `cacheDuration`.
+              cacheStrategy = { CacheControlCacheStrategy() },
+            )
           )
         )
       }
@@ -193,6 +195,11 @@ object NextImageImageLoader {
         NextImageCacheControlInterceptor { NextImageConfigStore.current.respectServerCacheHeaders }
       )
       .addInterceptor(NextImageProgressInterceptor())
+      // A network interceptor runs only for a request that really goes out,
+      // never for one Coil answered from memory or disk.
+      .addNetworkInterceptor(
+        NextImageNetworkLogInterceptor { NextImageConfigStore.current.logNetworkRequests }
+      )
 
     if (config.certificatePins.isNotEmpty()) {
       val pinner = CertificatePinner.Builder()

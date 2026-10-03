@@ -1,5 +1,6 @@
 package com.nextimage
 
+import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.PorterDuff
@@ -36,6 +37,7 @@ import com.facebook.react.bridge.ReactContext
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.bridge.WritableMap
+import com.facebook.react.uimanager.BackgroundStyleApplicator
 import com.facebook.react.uimanager.PixelUtil
 import com.facebook.react.uimanager.UIManagerHelper
 import kotlin.coroutines.resume
@@ -650,6 +652,17 @@ class NextImageView(context: ReactContext) : ImageView(context) {
     placeholderDisposable?.dispose()
     placeholderDisposable = null
     unregisterProgress()
+  }
+
+  /**
+   * Clips the bitmap to `style.borderRadius` (set by the view manager), the
+   * way React Native's own image view does; the background is already rounded
+   * by its drawable. A view without a radius is clipped to its bounds only.
+   */
+  override fun onDraw(canvas: Canvas) {
+    BackgroundStyleApplicator.clipToPaddingBoxWithAntiAliasing(this, canvas) {
+      super.onDraw(canvas)
+    }
   }
 
   /** Called when the view manager drops or recycles this instance. */

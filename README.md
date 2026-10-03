@@ -165,7 +165,7 @@ server back that control, or use `cache: 'web'` for a single image.
 
 ### Lifetime
 
-`source.cacheDuration` is **in minutes** and defaults to 7 days. Decimals work,
+`source.cacheDuration` is **in minutes** and defaults to 14 days. Decimals work,
 so `0.5` is 30 seconds.
 
 | `source.cache` | Behaviour |
@@ -381,7 +381,7 @@ in. Without the two props, `NextImage` renders exactly what it did before.
 | `headers` | `Record<string, string>` | `{}` | Sanitised before use. |
 | `priority` | `'low' \| 'normal' \| 'high'` | `'normal'` | On Android `low` runs on a two-thread lane so it cannot starve visible images; on iOS it maps to the URLSession task priority. |
 | `cache` | `'immutable' \| 'web' \| 'cacheOnly' \| 'reload'` | `'immutable'` | See [Lifetime](#lifetime). |
-| `cacheDuration` | `number` | `10080` | Minutes. |
+| `cacheDuration` | `number` | `20160` | Minutes. |
 | `cacheKey` | `string` | the `uri` | Stable key for signed URLs. |
 
 ### Events

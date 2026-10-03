@@ -191,7 +191,7 @@ struct NextImageRequest {
         // what makes a url download once and render from disk afterwards.
         let diskExpiration: StorageExpiration
         if ttlSeconds <= 0 {
-            diskExpiration = .days(7)
+            diskExpiration = .days(14)
         } else if ttlSeconds >= NextImageRequest.immutableTtlSeconds {
             diskExpiration = .never
         } else {

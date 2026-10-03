@@ -77,6 +77,8 @@ public final class NextImageEngine: NSObject {
 
     /// `authenticationChallengeResponder` is weak, so the responder lives here.
     private var pinningResponder: NextImagePinningResponder?
+    /// `ImageDownloader.delegate` is weak, so the logger lives here.
+    private let networkLogger = NextImageNetworkLogger()
     /// Prefetchers are held until they finish so they are not deallocated mid-flight.
     private var activePrefetchers: [UUID: ImagePrefetcher] = [:]
     private let prefetcherLock = NSLock()
@@ -127,9 +129,10 @@ public final class NextImageEngine: NSObject {
         cache.diskStorage.config.sizeLimit = config.diskCacheBytes
         // Per-request expiration overrides this; it is the fallback for a
         // request that does not set one.
-        cache.diskStorage.config.expiration = .days(7)
+        cache.diskStorage.config.expiration = .days(14)
 
         downloader.downloadTimeout = config.requestTimeoutMs / 1000.0
+        downloader.delegate = config.logNetworkRequests ? networkLogger : nil
 
         if NextImageConfigStore.shared.hasAnyPins() {
             let responder = NextImagePinningResponder()
@@ -335,6 +338,43 @@ public final class NextImageEngine: NSObject {
         case "high": return 1.0
         default: return URLSessionTask.defaultPriority
         }
+    }
+}
+
+/// Logs every image request that leaves the device, with the query string
+/// dropped so signed grants and tokens stay out of the log. Kingfisher calls
+/// its downloader only after the memory and disk caches missed, so a cache hit
+/// never produces a line: one line per URL is the proof it was downloaded once.
+final class NextImageNetworkLogger: ImageDownloaderDelegate {
+    private let lock = NSLock()
+    private var startedAt: [URL: Date] = [:]
+
+    func imageDownloader(_ downloader: ImageDownloader, willDownloadImageForURL url: URL, with request: URLRequest?) {
+        lock.lock()
+        startedAt[url] = Date()
+        lock.unlock()
+    }
+
+    func imageDownloader(
+        _ downloader: ImageDownloader,
+        didFinishDownloadingImageForURL url: URL,
+        with response: URLResponse?,
+        error: (any Error)?
+    ) {
+        lock.lock()
+        let started = startedAt.removeValue(forKey: url)
+        lock.unlock()
+        let tookMs = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.query = nil
+        let shown = components?.string ?? url.absoluteString
+        if let error {
+            NSLog("[NextImageNet] GET %@ -> failed: %@", shown, error.localizedDescription)
+            return
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let bytes = response?.expectedContentLength ?? -1
+        NSLog("[NextImageNet] GET %@ -> %d (%lld bytes, %dms)", shown, status, bytes, tookMs)
     }
 }
 

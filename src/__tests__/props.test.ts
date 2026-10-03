@@ -55,7 +55,7 @@ describe('normalizeCacheDuration', () => {
     );
   });
 
-  it('uses seven days for the other cache modes', () => {
+  it('uses fourteen days for the other cache modes', () => {
     expect(normalizeCacheDuration(undefined, 'web')).toBe(
       DEFAULT_CACHE_DURATION_MINUTES
     );

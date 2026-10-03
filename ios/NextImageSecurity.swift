@@ -7,7 +7,7 @@ import Foundation
 public struct NextImageConfig {
     public static let defaultDiskCacheBytes: UInt = 250 * 1024 * 1024
     public static let defaultMemoryCacheBytes: UInt = 0 // 0 means "let the OS decide"
-    public static let defaultCacheDurationMinutes: Double = 10080
+    public static let defaultCacheDurationMinutes: Double = 20160
     /// Roughly ten years: what `cache: 'immutable'` means when no duration is given.
     public static let immutableCacheDurationMinutes: Double = 5_256_000
     public static let minDiskCacheBytes: UInt = 4 * 1024 * 1024
@@ -33,15 +33,18 @@ public struct NextImageConfig {
     public var requestTimeoutMs: Double = 30000
     /// When false, `cacheDuration` decides the lifetime, not the server.
     public var respectServerCacheHeaders = false
+    /// Log each request that reaches the network (`[NextImageNet]` in the console).
+    public var logNetworkRequests = false
 
     public init() {}
 
-    /// Changes to these fields require the downloader and cache to be rebuilt.
+    /// Changes to these fields require the downloader and cache to be reconfigured.
     public static func requiresLoaderRebuild(_ before: NextImageConfig, _ after: NextImageConfig) -> Bool {
         before.memoryCacheBytes != after.memoryCacheBytes
             || before.diskCacheBytes != after.diskCacheBytes
             || before.requestTimeoutMs != after.requestTimeoutMs
             || before.certificatePins != after.certificatePins
+            || before.logNetworkRequests != after.logNetworkRequests
     }
 
     private static let pinPattern = "^sha256/[A-Za-z0-9+/]{43}=$"
@@ -57,6 +60,7 @@ public struct NextImageConfig {
         if let value = options["respectServerCacheHeaders"] as? Bool {
             respectServerCacheHeaders = value
         }
+        if let value = options["logNetworkRequests"] as? Bool { logNetworkRequests = value }
 
         if options.keys.contains("allowedHosts") {
             allowedHosts = NextImageConfig.stringList(options["allowedHosts"])

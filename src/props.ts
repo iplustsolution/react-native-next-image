@@ -49,8 +49,8 @@ export const CACHE_CONTROLS: readonly Cache[] = [
   'reload',
 ];
 
-/** 7 days, in minutes. */
-export const DEFAULT_CACHE_DURATION_MINUTES = 10080;
+/** 14 days, in minutes. */
+export const DEFAULT_CACHE_DURATION_MINUTES = 20160;
 /** Roughly 10 years, in minutes: the effective TTL of `cache: 'immutable'`. */
 export const IMMUTABLE_CACHE_DURATION_MINUTES = 5256000;
 export const MAX_TRANSITION_DURATION_MS = 10000;
@@ -63,7 +63,7 @@ export type Source = {
   headers?: Record<string, string>;
   priority?: Priority;
   cache?: Cache;
-  /** Cache lifetime in minutes. Defaults to 7 days. */
+  /** Cache lifetime in minutes. Defaults to 14 days. */
   cacheDuration?: number;
   /**
    * Stable cache key. Set this for signed URLs whose query string changes on
